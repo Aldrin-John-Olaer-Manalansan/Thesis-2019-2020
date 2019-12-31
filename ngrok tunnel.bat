@@ -1,0 +1,1 @@
+C:\Users\acer\Desktop\ngrok.exe http 192.168.1.184:80 -bind-tls=true -inspect=false -region=jp --authtoken 1UYiqnDwjx3c37Tf8oHtudCVOKe_3zDnY8QPgS5tEFagJkdjQ

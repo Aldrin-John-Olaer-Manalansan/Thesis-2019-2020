@@ -1,0 +1,110 @@
+NRF Research Specification:
+Maximum of 32bytes(32 characters) per packet can be retrieved at a time
+
+////////////////////////////////////////////////////////
+NRF Transmission Header Message(NRFTHM) format (1byte=8bits)
+  b7<<<<b0
+0bnnNNmmmm
+
+	0b				  nn		  NN			mmmm
+	 ^				  ^			  ^			  	  ^
+binary format		T.D.T.		R.D.T.		command switch
+
+>>>>>>>>>(nn) messenger device type(nag iindicate kung anong device ang nag transmit ng message nato , repeater and any device compatible)
+* 0b00 - 0 - smart socket
+* 0b01 - 1 - cctv
+* 0b10 - 2 - hub
+* 0b11 - 3 - repeater - information is requested to be REPEATED/Rebroadcast(receiver device will act as repeater), ginagamit pag di abot ng master/R-Pi or ng slave/device yung destination device.
+
+>>>>>>>>>(NN) recepient device type(nag iindicate kung anong device ang dapat makareceive ng message nato)
+* 0b00 - 0 - smart socket
+* 0b01 - 1 - cctv
+* 0b10 - 2 - hub
+* 0b11 - 3 - all device type
+
+>>>>>>>>>message switches(16 possible commands)
+~~~~UNIVERSALLY/Any Device Related~~~~
+* 0b0000 - 0  - information is a REQUEST(eg. esp32 requesting the wi-fi info,a device is requesting the "public channel info", r-pi is requesting a device power consumption or ac line state, etc...)
+* 0b0001 - 1  - information is the "public channel"(used for registering all NRF in one channel/room)
+
+~~~~Smart Socket Device Related~~~~
+* 0b0010 - 2  - information is the "smart socket's Power Consumption"(majored for current sensor)
+* 0b0011 - 3  - information is the "smart socket's AC Line State"(majored for the Relay)
+
+~~~~IP Camera Related~~~~
+* 0b0100 - 4  - information is the "Wi-Fi" SSID and Password
+* 0b0101 - 5  - information is the "IP-Address" of the IP-Camera Device
+
+~~~~maglagay lang kayo ng gusto nyo i-allocate na command dito, i-organize ko nlng pag may dinagdag kayo dito
+* 0b0110 - 6  - 
+* 0b0111 - 7  - 
+* 0b1000 - 8  - 
+* 0b1001 - 9  - 
+* 0b1010 - 10 - 
+* 0b1011 - 11 - 
+* 0b1100 - 12 - 
+* 0b1101 - 13 - PING PONG Communication - used indicate if the Slave(smart socket and IP Camera) Devices's NRF can reach the Master(Raspberry-Pi) Device's NRF
+* 0b1110 - 14 - byte message for debugging purposes
+* 0b1111 - 15 - char message for debugging purposes
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+nrf transmission scheme
+- first 3 bytes is a redundant NRFTHM(see above), where every byte is the same NRFTHM
+- purpose for error correction(redundant majority is the REAL Information signal)
+
+- 14th byte is the "packet information" with format in binary "0bCCCCcccc"
+- CCCC - total number of packets the message occupied, eg. 0000 means only one packet was used, 0011 means 4 packets was used - max of 16 packets an information can use
+- cccc - received packet number - 0000 is the first packet and so on... Since NRF24 reception can only receive one packet(32bytes) at a time, this can tells the current packet number. and then merge all packets from 0th up to 15th packet as one information message
+- for wifi credentials, CCCC is the number of packets the password uses, while cccc is the number of packets the ssid uses, when that happens, the packet info will become like this:
+0bAAAAAEEEEEcccccS - 0b	   AAAAA				EEEEE				ccccc					  S
+							 ^					  ^					  ^						  ^
+					passwordpacketcount		ssidpacketcount		current packet		for ssid(0),password(1)
+- next is the information(28 bytes/characters max) - do not worry since dito sa project natin gumawa ako ng protocol na multi-packet transmission, kaya ng system ntin na magsend ng 18 bytes per packet x 16 packets = 288 bytes or characters
+
+data[0]--------->---------data[31]
+0BzAARRRRRTTTTTPMMMMMMMMMMMMMMMMMM
+
+   0B				z				   RRRRR					TTTTT				   AA					P							NMMMMMMMMMMMMMMMMM
+	^				^			    	 ^						  ^					   ^					^									^
+byte format		N.R.F.T.M.		Receiver Serial-Key		Transmitter Serial-Key		Trashbin		packet information		Information(18 bytes or characters max)
+
+Note: the 'N' can be either an information character or a special packet information
+N.R.F.T.H.M. - NRF Transmission Header Message(see above)
+////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////
+~~information contents(18 bytes)~~See Above~~
+MMMMMMMMMMMMMMMMMM
+byte information[18];
+
+commandswitch=0b0000 - request switch(info requests):
+information[0]=0	-	no request
+information[0]=1	-	request to get the public channel
+information[0]=2	-	request to get the "smart socket's Power Consumption"(majored for current sensor)
+information[0]=3	-	request to get the "smart socket's AC Line State"(majored for the Relay)
+information[0]=4	-	request to get the "Wi-Fi" SSID and Password
+information[0]=5	-	request to get the "IP-Address" of the IP-Camera Device
+information[0]=64	-	request to initiate slave-master PING-PONG Communication
+
+commandswitch=0b0001 - public channel info:
+GGGGG0000000000000
+
+	GGGGG			  0000000000000
+	  ^						^
+Public Channel		Trash/Unused Data
+
+commandswitch=0b0010 - power consumption info:
+PPPPPPPPPPPPPPPPPP
+		^
+Power COnsumption with computation of base 256 each byte... converting to base 10 requires each byte to be multiplied by multiple powers of 256
+eg. 0B 255 152 123 13 42 0 0 0 0 0 0 0 0 0 0 0 0 0 = 0D 255*256^0 + 152*256^1 + 123*256^2 + 13*256^3 + 42*256^4 + 0*256^5 + 0*256^6 + 0*256^7 + 0*256^8 + 0*256^9 + 0*256^10 + 0*256^11 + 0*256^12 + 0*256^13 + 0*256^14 + 0*256^15 + 0*256^16 + 0*256^17

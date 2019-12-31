@@ -1,0 +1,202 @@
+/*
+COMPILE PASSED
+TRANSMISSION AND RECEPTION : UNTESTED
+usage:
+#include "directory\Transceiver(untested).thesis"
+
+eg.
+#include "C:\Users\acer\Desktop\sketch_dec01a\includes\Transceiver_untested.cpp"
+
+Bundle:
+
+~~~~transceiversetup(byte __devicetype__)~~~~
+- ONLY CALL THIS ONE(eg. at setup function)
+- initiallizes all settings of the NRF Network(initializing private channel and public channel, channel pipe targets)
+- nasasainyo kung gusto nyo pa intindihin, may comments nmn ako nilagay
+
+>>__devicetype__ - set to the following:
+* 0b00 - 0 - smart socket
+* 0b01 - 1 - cctv
+* 0b10 - 2 - hub
+
+usage:
+transceiversetup(0); // initiallize this device's NRF for smart socket
+transceiversetup(0); // initiallize this device's NRF for cctv
+transceiversetup(0); // initiallize this device's NRF hub hub
+~~~~
+
+~~~~transmitat(byte __text__[], byte channel_address[5])~~~~
+- mag transmit ng message sa specific channel/room
+- take note: mag OOFF ang Reception state ng device na ito
+
+>>__text__ - message na itatransmit
+>>channel_address - channel na pagtratransmitan - 5 element array dapat to
+usage:
+transmitat("hello kung sino kaman",{132,255,52,102,243}); // magsend sa channel 132.255.52.102.243 ng message "hello kung sino kaman"
+transmitat("test na test na ako",__private_channel__); // magsend sa char array na pangalan "__private_channel__" ng message "test na test na ako"
+transmitat("nanjan na si mam?",__public_channel__); // magsend sa char array na pangalan "__public_channel__" ng message "nanjan na si mam?"
+byte msg[]="hellllllllooooowwwww";
+transmitat(msg,__public_channel__); // magsend sa char array na pangalan "__public_channel__" ng message na laman ng "msg"
+
+receiveall()
+- iretreive ang kahit anong message na nanggaling sa public at private channel
+*/
+
+//dito mag-Include ng Libraries
+#include "Arduino.h"
+#include "ThesisTransceiver.h"
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+//
+
+/////////////////// global definition,constants,variables,class,objects,structures dito ntin ilagay
+
+#define NRF_PIN_CE 9
+#define NRF_PIN_CSN 8
+
+//create an RF24 object
+// object definition map:
+// RF24   - RF24.h ibig sabihin nyan
+// radio  - pangalan ng function na nag cecreate ng object na kung ano man yan.
+// (9,8)  - parameters na ipapasa sa function na "radio", yan yung value na tatandaan ng "radio" function bago nya gawin trabaho nya, para bang inutusan ka ng nanay mo bumili ng toyo(9) at suka(8)
+// RF24 radio(9,8) - inutusan ko si "JB(radio)" ng "Ladiero Family"(RF24) na mag sign-up sa github.com gamit ang username na jblgwapo(9) at password na dniawedw(8)
+RF24 radio(NRF_PIN_CE, NRF_PIN_CSN); // CE, CSN
+
+////////////////////////
+/*
+  sabi sa documentation 5 bytes lang ang channel na cinoconsider ng pipe 0 at 1, where yung first byte is unique sa lahat ng 6 pipes, kasi yung remaining 4 bytes, nagshashare silang anim dito...
+  eg. pipe0channel={1,N,O,D,E};
+  eg. pipe1channel={b,N,O,D,E};
+  eg. pipe2channel={Y,N,O,D,E};
+  eg. pipe3channel={Q,N,O,D,E};
+  eg. pipe4channel={v,N,O,D,E};
+  eg. pipe5channel={9,N,O,D,E};
+  pero since di naman tayo "definite" sa dami ng modules, di natin susundin to... in other words, kahit ano na value ng limang bytes
+  eto ang tatawagin nting "Primary Serial Key"
+                     1st byte     2nd byte     3rd byte     4th byte     5th byte
+  byte address[5] = [ 0b00000000 , 0b00000000 , 0b00000000 , 0b00000000 , 0b00000000 ];
+*/
+
+// eto yung UNIQUE Channel ng device nato, WALA DAPAT ETO KAPAREHAS NA CHANNEL SA ANUMANG DEVICE
+// Private communication // kapag gusto mo kausapin ng private yung device nato instead of PUBLIC na marami makakarinig, ito gagamitin na channel
+// eg, ikaw binulong mo sa katabi mo na nagtatanong kung anong oras na, pwede karin nya bulungan na "its time to party"... secretly
+// const byte __private_channel__[5]={0b00000000,0b00000000,0b00000000,0b00000000,0b00000000}; // 1byte=8bits ; 5bytes=40bits
+const byte __private_channel__[5] = {0b01001100, 0b11100000, 0b00010111, 0b01101100, 0b10101100}; // 1byte=8bits ; 5bytes=40bits
+
+// eto yung RASPBERRY-PI initialized CHANNEL na makukuha sa raspberry-pi(HUB) natin para sa PUBLIC COMMUNICATION aka lahat ng rf devices ,maririnig kapag nasa loob nito.
+// star topology ang inaapply ng channel nato sa thesis ntin, all devices transmits on all other devices, eg. ikaw sumigaw ka sa classroom lahat narinig ka
+byte __public_channel__[5];
+////////////////////////
+
+byte __devicetype__;
+
+///////////////////
+
+//launch this at the startup
+//void setup()
+//{
+//  transceiversetup(0);
+//}
+
+//void loop()
+//{
+//
+//}
+
+byte bytereadbits(byte variable, byte from = 0, byte bitcount = 1)
+/*
+   read number of bits on a byte
+   b7 b6 b5 b4 b3 b2 b1 b0 - byte format in bits
+   usage:
+   bytereadbits(0b10100101,4,3) - get 3 bits starting from the 5th bit(b4) - b4 to b6 - extracts 0b010
+   bytereadbits(0b10100101,2,4) - get 4 bits starting from the 3rd bit(b2) - b2 to b5 - extracts 0b1001
+*/
+{
+  variable = variable << 8 - bitcount - from;
+  variable = variable >> (8 - bitcount);
+  return variable;
+}
+
+/*
+   isang beses lang to tatawagin, iniinitialize nito yung
+   device types:
+   0 - Smart Socket
+   1 - CCTV
+   2 - Raspberry-Pi
+*/
+void transceiversetup(byte __devicetype__) // tawagin lang to one time // sa setup() lang to gamitin
+{
+
+  radio.begin(); // buhayin na yung module, magkainin na ng current yung nrf
+
+  //set the 1st pipe(0) sa private channel
+  radio.openReadingPipe(0, __private_channel__); // eto yung private channel(room eg. B103 sa LSB) na papasukan ng mensahe(message)
+
+  //Set module as receiver
+  radio.startListening(); // makikinig lang yung NRF24 gamit ang anim(6) na tenga nya
+
+  byte __text__[32] = {0}; // yung data na kailangan natin is just 14 bytes... 3 bytes para sa header redundancy, 1 byte para sa packets info, 5 bytes para sa target private channel ng target device, 5 bytes para sa public channel info
+  while (true) // infinite loop
+  {
+    if (radio.available())
+    {
+      radio.read(&__text__, sizeof(__text__));
+
+      if ( (__text__[0] == __text__[1]) && (__text__[1] == __text__[2])
+           && (bytereadbits(__text__[0], 4, 2) == __devicetype__)
+           && (bytereadbits(__text__[0], 0, 4) == 1) )
+      {
+        // 5th to 9th byte of __text__ contained the public channel
+        memcpy(__public_channel__, __text__ + 4, 5); //extract 5 bytes starting from the 5th byte of __text__ and store to target device private channel, this confirms that this is the device it was targeting to...
+        if (__public_channel__ == __private_channel__) // this device private channel and the received target private channel of the sender must be the same to point out the this is the device it was referring to...
+        {
+          memcpy(__public_channel__, __text__ + 9, 5); //extract 5 bytes starting from the 10th byte of __text__ and store to __public_channel__
+          break; // break the infinite loop
+        }
+      }
+    }
+  }
+
+  //set the 2nd pipe(1) sa target channel
+  radio.openReadingPipe(1, __public_channel__); // eto yung public channel(room eg. B103 sa LSB) na papasukan ng mensahe(message)
+}
+
+//tinipid ko yung transmitat at receiveat
+
+void transmitat(byte __text__[], byte channel_address[5])
+{
+  //Set module as transmitter
+  radio.stopListening(); // gawing tagadaldal yung arduino gamit ang bibig(NRF24)
+
+  //set the address
+  radio.openWritingPipe(channel_address); // eto yung target channel(room eg. B103 sa LSB) na papasukan ng mensahe(message)
+
+  /*
+    Send message to receiver
+    & -  pointer yan, daliri na nakaturo sa kung saan man kumbaga. Halimbawa, nagtanong ka sakin kung nasaan yung CR, di ko naman sasabihin yung buong address ng CR diba? instead ituturo ko yung CR (turn left then right then left then right)
+    &__text__ - pointer kung nasaan yung "text" sa memory in bytes, simple terms, "tinuro ko sayo"(&) kung nasaan ang "CR"(text) sa lyceum(memory)
+    sizeof(__text__) - array of characters ksi yung text
+               - tas naka __text__[] pa a.k.a. text na may "NULL length"(dynamic)
+               - para malaman mo yung length ng array(which is yung text), gamitin mo yung sizeof()
+  */
+  radio.write(&__text__, sizeof(__text__));
+}
+
+byte receiveall()
+{
+  //Set module as receiver
+  radio.startListening(); // makikinig lang yung NRF24 gamit ang anim(6) na tenga nya
+
+  //Read the data if available in buffer
+  if (radio.available())
+  {
+    // sabi sa documentary ng nrf24, every packet, 32bytes ang laman kaya 32 bytes of array yung ating "text"
+    byte __text__[32] = {0}; // empty string first
+    radio.read(&__text__, sizeof(__text__));
+	
+    if ( (__text__[0] == __text__[1]) && (__text__[1] == __text__[2])
+		&& (bytereadbits(__text__[0], 4, 2) == __devicetype__)
+		&&
+  }
+}

@@ -1,0 +1,417 @@
+#include <NTPClient.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <esp_camera.h>
+
+//
+// WARNING!!! Make sure that you have either selected ESP32 Wrover Module,
+//            or another board which has PSRAM enabled
+//
+
+// Select camera model
+//#define CAMERA_MODEL_WROVER_KIT
+//#define CAMERA_MODEL_ESP_EYE
+//#define CAMERA_MODEL_M5STACK_PSRAM
+//#define CAMERA_MODEL_M5STACK_WIDE
+#define CAMERA_MODEL_AI_THINKER
+#include "camera_pins.h"
+
+#define WiFi_TryConnect_TimeOut 20000.0 // ilang  milliseconds maghihintay ang esp32 sa pag connect
+#define builtin_serialkey "Qa!e6" // eto yung UNIQUE Serial Key ng Device nato
+#define builtin_AP_SSID "IP Camera: Qa!e6" // eto yung SSID ng WiFi na gagawin ng device nato
+#define builtin_AP_Password "Ba0!*sL8" // eto yung password ng WiFi na gagawin ng device nato
+
+#define Port_WebServer 8000
+#define Port_WebSocket 8888
+
+#define standby_timer 2000
+
+//#define tunnel_webserver "ws://0.tcp.jp.ngrok.io:13864"
+
+#define flashlight 4
+#define clientindicator_LED 12
+#define lightdependentresistor 13
+#define LDR_Sensitivity 2048
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800, 3600e3);
+
+IPAddress staticip;
+word customtimer = 0;
+unsigned long timesincelastupdate = 0;
+
+//char* ssid = "Jalibee";
+//char* password = "3.1415926536";
+//String ssid = "Jalibee";
+//String password = "3.1415926536";
+//String ssid = "LSB-HOTEL";
+//String password = "homeofthechampions";
+String ssid = "Manalansan";
+String password = "Manalansan@123!";
+
+//void startCameraServer();
+
+
+/*
+        <style> *{ margin:0; } img { display: absolute; margin: 0 !important; height: 100vh;  width: 100vw; } </style>
+
+  "        <style>\n"
+  "          img\n"
+  "          {\n"
+  "            display: block;\n"
+  "            margin-left: auto;\n"
+  "            margin-right: auto;\n"
+  "            height: 100%;\n"
+  "            width: auto;\n"
+  "          }\n"
+  "        </style>\n"
+*/
+
+//broadcast_ip
+
+WebServer server(Port_WebServer);
+WebSocketsServer webSocket = WebSocketsServer(Port_WebSocket,"/ws");
+
+extern volatile unsigned long timer0_millis; // make millis() volatile(can be reset back to zero)
+void setup()
+{
+  Serial.begin(115200);
+  Serial.setDebugOutput(true);
+  Serial.println();
+
+connecttowifi:
+  //ssid.toCharArray(char_ssid,ssid.length())
+  //Serial.println(char_ssid);
+  //password.toCharArray(char_password,password.length())
+  //Serial.println(char_password);
+  //WiFi.begin(char_ssid,char_password);
+  WiFi.begin(ssid.c_str(), password.c_str());
+  customtimer = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+    if ( (WiFi.status() == WL_CONNECT_FAILED) || (millis() - customtimer > WiFi_TryConnect_TimeOut) )
+    {
+      WiFi.softAPConfig(IPAddress(192, 168, 1, 184), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0)); // set ip infos
+      if (WiFi.softAP(builtin_AP_SSID, builtin_AP_Password) == true); // create our own wifi
+      {
+        if (WiFi.softAPIP() != IPAddress(192, 168, 1, 184))
+          WiFi.softAPConfig(IPAddress(192, 168, 1, 184), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0)); // set ip infos
+        // WiFi.softAP(ssid, password);
+        Serial.println(String("Access Point created!"));
+        Serial.println(String("SSID:") + builtin_AP_SSID);
+        Serial.println(String("Password:") + builtin_AP_Password);
+        break;
+      }
+    }
+    if (Serial.available() > 0)
+    {
+      String dynamicstring = Serial.readString();
+      Serial.print(dynamicstring);
+      if (dynamicstring.indexOf("WiFi Setup") >= 0)
+      {
+        Serial.println("Type the SSID");
+        while (Serial.available() <= 0) { }
+        ssid = Serial.readString();
+        if (ssid.endsWith("\r\n"))
+          ssid.remove(ssid.length() - 2, 2);
+        else if (ssid.endsWith("\r") || ssid.endsWith("\n"))
+          ssid.remove(ssid.length() - 1, 1);
+
+        Serial.println(String("SSID changed into ") + ssid);
+
+        Serial.println("Type the Password");
+        while (Serial.available() <= 0) { }
+        password = Serial.readString();
+        if (password.endsWith("\r\n"))
+          password.remove(password.length() - 2, 2);
+        else if (password.endsWith("\r") || password.endsWith("\n"))
+          password.remove(password.length() - 1, 1);
+
+        Serial.println(String("Password changed into ") + password);
+
+        goto connecttowifi;
+      }
+    }
+  }
+  if (WiFi.status() == WL_CONNECTED )// kapag nakaconnect tayo sa ibang wifi, kelangan nakaconfigure ang static IP address
+  {
+    Serial.print(String("\nWiFi connected using:\nSSID:") + ssid + String("\nPassword:") + password + String("\n"));
+    staticip = WiFi.localIP(); // get the current ip of this device assigned by the router
+    staticip[3] = 184; // set the fourth octet to 184
+    if (!WiFi.config(staticip, WiFi.gatewayIP(), WiFi.subnetMask(), IPAddress(8, 8, 8, 8), IPAddress(1, 1, 1, 1))) { // set the static ip address
+      Serial.println("STA Failed to configure");
+    }
+  }
+  else
+    staticip = WiFi.softAPIP(); // get the current ip of this device assigned by the router
+  // "            const WS_URL = 'ws://' + window.location.hostname + ':" + String(Port_WebSocket) + "';\n"
+  //startCameraServer();
+
+  timeClient.begin(); // Initialize a NTPClient to get time
+  timeClient.update();
+  Serial.println(timeClient.getHours());
+  Serial.println(timeClient.getFormattedTime());
+
+  server.on("/", []()
+  {
+    server.send(200, "text/html", ""
+                "<html>\n"
+                "    <head>\n"
+                "        <title>Thesis Camera Test</title>\n"
+                "        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+                "        <style>"
+                "          img"
+                "          {"
+                "            display: block;"
+                "            margin-left: auto;"
+                "            margin-right: auto;"
+                "            height: 100%;"
+                "            width: auto;"
+                "          }"
+                "        </style>"
+                "    </head>\n"
+                "    <body style=\"background-color:#FFFFFF\">\n"
+                "        <img src=\"\">\n"
+                "        <script>\n"
+                "            const img = document.querySelector('img');\n"
+                "            const WS_URL = 'ws://' + window.location.hostname + ':8888/ws';\n"
+                "            const ws = new WebSocket(WS_URL);\n"
+                "            ws.onerror = function() {\n"
+                "               location.reload(true);\n"
+                "            }\n"
+                "            let urlObject;\n"
+                "            ws.onmessage = message => {\n"
+                "                const arrayBuffer = message.data;\n"
+                "                if(urlObject){\n"
+                "                    URL.revokeObjectURL(urlObject);\n"
+                "                }\n"
+                "                urlObject = URL.createObjectURL(new Blob([arrayBuffer]));\n"
+                "                delete arrayBuffer;"
+                "                delete message;"
+                "                img.src = urlObject;\n"
+                "            }\n"
+                "        </script>\n"
+                "    </body>\n"
+                "</html>");
+  });
+  server.begin();
+  webSocket.begin();
+
+  Serial.println("Camera Ready! type this URL to access the Video Stream:");
+  Serial.print(staticip);
+  Serial.println(String(":") + Port_WebServer);
+
+  pinMode(clientindicator_LED, OUTPUT);
+  pinMode(flashlight, OUTPUT);
+  //pinMode(lightdependentresistor, INPUT_PULLUP); // set resolution of input from 0-4095
+
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+
+  //config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 10000000; // accourding sa research ko ito 10MHz ang nagbibigay ng best FPS
+
+  config.pixel_format = PIXFORMAT_JPEG;
+  //init with high specs to pre-allocate larger buffers
+  if (psramFound()) {
+
+    Serial.println("PSRAM was FOUND!!!");
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 10;
+
+    config.fb_count = 2;
+  } else {
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+  }
+
+  // camera init
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed with error 0x%x", err);
+    return;
+  }
+
+  sensor_t * s = esp_camera_sensor_get();
+
+  s->set_framesize(s, FRAMESIZE_VGA); //drop down frame size for higher initial frame rate
+  ////s->set_brightness(s,0);
+  ////s->set_contrast(s,0);
+  ////s->set_saturation(s, 2);
+  ////s->set_special_effect(s,0);
+  //s->set_whitebal(s, 1);
+  //s->set_awb_gain(s, 1);
+  ////s->set_wb_mode(s,0);
+  //s->set_exposure_ctrl(s, 1);
+  //s->set_aec2(s, 1);
+  ////s->set_ae_level(s,0);
+  //s->set_aec_value(s, 204);
+  //s->set_gain_ctrl(s, 1);
+  //s->set_agc_gain(s, 5);
+  ////s->set_gainceiling(s,0);
+  ////s->set_bpc(s,0);
+  //s->set_wpc(s, 1);
+  //s->set_raw_gma(s, 1);
+  //s->set_lenc(s, 1);
+  ////s->set_hmirror(s,0);
+  ////s->set_vflip(s,0);
+  //s->set_dcw(s, 1);
+  ////s->set_colorbar(s,0); // recommend not to on, only turn this on when callibrating colors
+  ////s->detection_enabled=0;
+  ////s->recognition_enabled=0;
+
+  Serial.println(String("framesize:") + String(s->status.framesize));
+  Serial.println(String("quality:") + String(s->status.quality));
+  Serial.println(String("brightness:") + String(s->status.brightness));
+  Serial.println(String("contrast:") + String(s->status.contrast));
+  Serial.println(String("saturation:") + String(s->status.saturation));
+  Serial.println(String("sharpness:") + String(s->status.sharpness));
+  Serial.println(String("special_effect:") + String(s->status.special_effect));
+  Serial.println(String("wb_mode:") + String(s->status.wb_mode));
+  Serial.println(String("awb:") + String(s->status.awb));
+  Serial.println(String("awb_gain:") + String(s->status.awb_gain));
+  Serial.println(String("aec:") + String(s->status.aec));
+  Serial.println(String("aec2:") + String(s->status.aec2));
+  Serial.println(String("ae_level:") + String(s->status.ae_level));
+  Serial.println(String("aec_value:") + String(s->status.aec_value));
+  Serial.println(String("agc:") + String(s->status.agc));
+  Serial.println(String("agc_gain:") + String(s->status.agc_gain));
+  Serial.println(String("gainceiling:") + String(s->status.gainceiling));
+  Serial.println(String("bpc:") + String(s->status.bpc));
+  Serial.println(String("wpc:") + String(s->status.wpc));
+  Serial.println(String("raw_gma:") + String(s->status.raw_gma));
+  Serial.println(String("lenc:") + String(s->status.lenc));
+  Serial.println(String("vflip:") + String(s->status.vflip));
+  Serial.println(String("hmirror:") + String(s->status.hmirror));
+  Serial.println(String("dcw:") + String(s->status.dcw));
+  Serial.println(String("colorbar:") + String(s->status.colorbar));
+
+  //initial sensors are flipped vertically and colors are a bit saturated
+  if (s->id.PID == OV3660_PID) {
+    s->set_vflip(s, 1);//flip it back
+    s->set_brightness(s, 1);//up the blightness just a bit
+    s->set_saturation(s, -2);//lower the saturation
+  }
+
+  Serial.println(String("public ip:") + getIp());
+}
+
+void loop()
+{
+
+  webSocket.loop();
+  server.handleClient();
+
+  if (webSocket.connectedClients(false) <= 0)
+  {
+    gostandbymode();
+    return;
+  }
+
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb)
+  {
+    Serial.println("Camera capture failed");
+    esp_camera_fb_return(fb);
+    gostandbymode();
+    return;
+  }
+
+  if (fb->format != PIXFORMAT_JPEG)
+  {
+    Serial.println("Non-JPEG data not implemented");
+    gostandbymode();
+    return;
+  }
+
+  webSocket.broadcastBIN((const uint8_t*) fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+
+  if ((webSocket.connectedClients(false) > 0 || digitalRead(clientindicator_LED) == HIGH) && millis() - customtimer > 1000 / webSocket.connectedClients(false))
+  {
+    Serial.println(String("Connected Clients:") + String(webSocket.connectedClients(false)));
+
+    if (millis() - timesincelastupdate >= 3600e3)
+    {
+      timeClient.update();
+      timesincelastupdate = millis();
+      Serial.println("Time was Updated!");
+    }
+    byte currenthour = timeClient.getHours();
+    Serial.println(String("Current Hour:") + currenthour);
+    Serial.println(timeClient.getFormattedTime());
+    Serial.println(String("flashlight state:") + String(((currenthour < 22 && currenthour >= 6) && digitalRead(flashlight) == HIGH)));
+    Serial.println(String("flashlight state:") + String(((currenthour >= 22 || currenthour < 6) && digitalRead(flashlight) == LOW)));
+    if ((currenthour < 22 && currenthour >= 6) && digitalRead(flashlight) == HIGH)
+      digitalWrite(flashlight, LOW);
+    else if ((currenthour >= 22 || currenthour < 6) && digitalRead(flashlight) == LOW)
+      digitalWrite(flashlight, HIGH);
+
+    if (digitalRead(clientindicator_LED) != HIGH)
+    {
+      digitalWrite(clientindicator_LED, HIGH);
+      Serial.println("HIGH");
+    }
+    else
+    {
+      digitalWrite(clientindicator_LED, LOW);
+      Serial.println("LOW");
+    }
+    customtimer = millis();
+  }
+  //webSocket.disconnect(); // disconnectclient
+}
+
+void gostandbymode()
+{
+  if (digitalRead(flashlight) == HIGH)
+    digitalWrite(flashlight, LOW);
+  if (digitalRead(clientindicator_LED) == HIGH)
+    digitalWrite(clientindicator_LED, LOW);
+  //delay(standby_timer);
+}
+
+String getIp()
+{
+  WiFiClient client;
+  if (client.connect("api.ipify.org", 80))
+  {
+    client.println("GET / HTTP/1.0");
+    client.println("Host: api.ipify.org");
+    client.println();
+  }
+  else return String();
+
+  while (!client.available()) {
+    delay(500);
+  }
+
+  String line;
+
+  while (client.available())
+    line = client.readStringUntil('\n');
+
+  return line;
+}
