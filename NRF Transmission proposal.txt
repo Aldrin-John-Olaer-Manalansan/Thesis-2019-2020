@@ -69,20 +69,23 @@ data[0]--------->---------data[31]
 	^				^			    	 ^						  ^					   ^					^									^
 byte format		N.R.F.T.M.		Receiver Serial-Key		Transmitter Serial-Key		Trashbin		packet information		Information(18 bytes or characters max)
 
-Note: the 'N' can be either an information character or a special packet information
-N.R.F.T.H.M. - NRF Transmission Header Message(see above)
-////////////////////////////////////////////////////////
+Note: the 'N' can be either an information character or a special packet information:
+for Wifi Credentials, the packetinfo becomes like this:
+0B PN = 0bpppppsssssCCCCCc
 
+	0b 							ppppp 					  		  	    sssss 							CCCCC 									  c
+	^							  ^										  ^						  		  ^										  ^
+bit format		Password packets count(0=no password) 		SSID packets count(0=no ssid) 		current packet received 		packet was for (0 - SSID, 1 - password)
 
+eg. info of 5 packets
+packetp[0]=0B	96	77	66	36	55	45	76	99	87	32	100	120	172	32	125	54	55	< good message
+packetp[1]=0B	55	45	44	64	76	255	43	78	55	45	64	33	76	108	54	111	32	< has a HOLE(0B 255) , the receiver will detect this packet as a "lost" packet
+packetp[2]=0B	43	33	43	58	78	99	56	45	44	76	65	76	45	126	123	32	42	< good message
+packetp[3]=0B	55	45	44	64	76	122	43	78	55	45	64	33	76	108	54	111	32	< good message
+packetp[4]=0B	96	77	66	36	55	45	76	99	87	32	0	0	0	0	0	0	0	< has a TERMINATOR(0B 0) , the receiver will detect this as the end of the message
 
+when a HOLE was detected by the receiver, it will send a "get lost packet" request()
 
-
-
-
-
-
-
-////////////////////////////////////////////////////////
 ~~information contents(18 bytes)~~See Above~~
 MMMMMMMMMMMMMMMMMM
 byte information[18];
@@ -93,8 +96,15 @@ information[0]=1	-	request to get the public channel
 information[0]=2	-	request to get the "smart socket's Power Consumption"(majored for current sensor)
 information[0]=3	-	request to get the "smart socket's AC Line State"(majored for the Relay)
 information[0]=4	-	request to get the "Wi-Fi" SSID and Password
-information[0]=5	-	request to get the "IP-Address" of the IP-Camera Device
+
+information[0]=5	-	request to get LOST packets the "Wi-Fi" SSID and Password:
+information[1]-information[8] = 0B 				  SSSS 						 pppp 	<---- SSSS,pppp ~ uint16_t where each bit represents if that packet index was received by the requester
+								^				 	^						  ^
+							byte format		SSID packet state		Password packet state
+
+information[0]=6	-	request to get the "IP-Address" of the IP-Camera Device
 information[0]=64	-	request to initiate slave-master PING-PONG Communication
+information[0]=128	-	request to restart the device
 
 commandswitch=0b0001 - public channel info:
 GGGGG0000000000000

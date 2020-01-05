@@ -1,27 +1,61 @@
+//WiFi Related Libraries
 #include <WiFi.h>
 #include "WebSocketsServer.h"
+//Bluetooth Related Libraries
+#include "esp_bt_main.h"
+#include "esp_bt_device.h"
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
 
 //#include <NTPClient.h>
 //#include <WiFiUdp.h>
 
+//Camera Related Libraries
 #include <esp_camera.h>
 #include "camera_pins.h"
 
-#define WiFi_TryConnect_TimeOut 20000.0 // ilang  milliseconds maghihintay ang esp32 sa pag connect
-#define builtin_serialkey "Qa!e6" // eto yung UNIQUE Serial Key ng Device nato
-#define builtin_AP_SSID "IP Camera: Qa!e6" // eto yung SSID ng WiFi na gagawin ng device nato
+#define WiFi_TryConnect_TimeOut 20000 // ilang  milliseconds maghihintay ang esp32 sa pag connect
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+#define IPCAMERA_SERVICEUUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define IPCAMERA_CHARACTERISTICSUUID_WIFICREDENTIALS "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+#define BLE_Dot_KeyWord "nU)7S"
+#define BLE_Dot_Length_KeyWord 5 // length ng serial key sa taas
+#define BLE_YouAreFree_KeyWord "oE9*3&#M0*a2vcA"
+#define BLE_YouAreFree_Length_KeyWord 15 // length ng serial key sa taas
+#define BLE_RequestCredentials_KeyWord "I75^SuSwIoNv&6y"
+#define BLE_RequestCredentials_Length_KeyWord 15 // length ng serial key sa taas
+#define BLE_WrongCredential_KeyWord "iU8#9Dv_dieYb*3"
+#define BLE_WrongCredential_Length_KeyWord 15 // length ng serial key sa taas
+#define BLE_IPAddress_KeyWord "m*Ay@9X7&4Sp,u8"
+#define BLE_IPAddress_Length_KeyWord 15 // length ng serial key sa taas
+#define BLE_SSID_KeyWord "Mq83Uc_3ZvSeLVe"
+#define BLE_SSID_Length_KeyWord 15 // length ng serial key sa taas
+#define BLE_Password_KeyWord "p!i^p##0&eOsqm3"
+#define BLE_Password_Length_KeyWord 15 // length ng serial key sa taas
+#define builtin_serialkey "mWQa!e6IqCISo%3" // eto yung UNIQUE Serial Key ng Device nato
+#define builtin_length_serialkey 15 // length ng serial key sa taas
+
+#define builtin_AP_SSID "IP Camera: mWQa!e6IqCISo*3" // eto yung SSID ng WiFi na gagawin ng device nato
 #define builtin_AP_Password "Ba0!*sL8" // eto yung password ng WiFi na gagawin ng device nato
 
 #define Port_WebSocket 80 // set the websocket listen port to port 80(do not change this port because you will need to modify my html found at "WebSocketsServer.h" if you want to...)
 
 #define standby_timer 500
 
+#define flashlight_ledc_freq 5000
+#define flashlight_ledc_channel 0
+#define flashlight_ledc_resolution 16
 #define flashlight 4
+
 #define clientindicator_LED 12
 
 /* WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800, 3600e3);
-unsigned long timesincelastupdate = 0; */
+  NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800, 3600e3);
+  unsigned long timesincelastupdate = 0; */
 
 IPAddress staticip;
 
@@ -30,11 +64,104 @@ camera_config_t cameraconfig;
 
 word customtimer = 0;
 bool wasSTA = false;
+// wifi_power_t defaulttxpower=WiFi.getTxPower();
 
-String ssid = "Manalansan";
-String password = "Manalansan@123!";
+//String ssid = "Manalansan";
+//String password = "Manalansan@123!";
+String ssid, password; // empty for demonstration of ssid fetching via bluetooth
 
 WebSocketsServer webSocket = WebSocketsServer(Port_WebSocket, "/ws"); //initialize websocket
+
+#define dutycycle_spacing 32
+void flashlightsetting(byte setting = 2)
+{
+  static byte dutycycle = 0;
+  static byte booleanswitches = 0b00000001;
+
+  if (setting >= 2)
+  {
+    if (!bitRead(booleanswitches, 1))
+    {
+      ledcSetup(flashlight_ledc_channel, flashlight_ledc_freq, flashlight_ledc_resolution);
+      ledcAttachPin(flashlight, flashlight_ledc_channel);
+      bitWrite(booleanswitches, 1, 1);
+    }
+    bitWrite(booleanswitches, 2, 0);
+
+    if (dutycycle == 255)
+      bitWrite(booleanswitches, 0, 0);
+    else if (dutycycle == 0)
+      bitWrite(booleanswitches, 0, 1);
+
+    if (bitRead(booleanswitches, 0))
+    {
+      if (dutycycle + dutycycle_spacing <= 255)
+        dutycycle += dutycycle_spacing;
+      else
+        dutycycle = 255;
+    }
+    else
+    {
+      if (dutycycle - dutycycle_spacing >= 0)
+        dutycycle -= dutycycle_spacing;
+      else
+        dutycycle = 0;
+    }
+
+    ledcWrite(flashlight_ledc_channel, dutycycle);
+  }
+  else
+  {
+    if (bitRead(booleanswitches, 1))
+    {
+      ledcDetachPin(flashlight);
+      ledcSetup(flashlight_ledc_channel, 0, 1);
+      bitWrite(booleanswitches, 1, 0);
+    }
+    if (!bitRead(booleanswitches, 2))
+    {
+      pinMode(flashlight, OUTPUT);
+      bitWrite(booleanswitches, 2, 1);
+    }
+    digitalWrite(flashlight, setting);
+  }
+}
+
+bool initBluetooth()
+{
+  if (!btStart())
+  {
+    Serial.println("Failed to initialize controller");
+    return false;
+  }
+
+  if (esp_bluedroid_init() != ESP_OK)
+  {
+    Serial.println("Failed to initialize bluedroid");
+    return false;
+  }
+
+  if (esp_bluedroid_enable() != ESP_OK)
+  {
+    Serial.println("Failed to enable bluedroid");
+    return false;
+  }
+  return true;
+}
+
+void GetThisDeviceBLEAddress(char* BLE_Address)
+{
+  const uint8_t* pointer = esp_bt_dev_get_address();
+
+  for (int i = 0; i < 6; i++)
+  {
+    sprintf(BLE_Address + (3 * i), "%02x", (int)pointer[i]);
+
+    if (i < 6)
+      BLE_Address[(3 * i) - 1] = ':';
+  }
+
+}
 
 void setup()
 {
@@ -42,15 +169,79 @@ void setup()
   Serial.setDebugOutput(true);
   Serial.println();
 
+  //WiFi.setTxPower(WIFI_POWER_17dBm); // weakest signal
+  //Serial.println(String("Initial Power:")+String(WiFi.getTxPower()));
+
+  //BLE SYSTEM
+  char BLEAddress[(3 * 6) - 1] = {0};
+  if (initBluetooth())
+    GetThisDeviceBLEAddress(BLEAddress);
+
+  Serial.println("Starting BLE work!");
+
+  BLEDevice::init(BLEAddress);
+  BLEServer *pServer = BLEDevice::createServer();
+  BLEService *pService = pServer->createService(IPCAMERA_SERVICEUUID);
+  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+                                         IPCAMERA_CHARACTERISTICSUUID_WIFICREDENTIALS,
+                                         BLECharacteristic::PROPERTY_READ |
+                                         BLECharacteristic::PROPERTY_WRITE
+                                       );
+
+  String BLE_message = String(builtin_serialkey) + String(BLE_RequestCredentials_KeyWord) + String(builtin_serialkey);
+  pCharacteristic->setValue(BLE_message.c_str()); // this tells the Master that I want the WiFi Credentials
+  pService->start();
+  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(IPCAMERA_SERVICEUUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  Serial.println("Advertisement Initialted!");
+BLEGetWiFi:
+  while (true)
+  {
+    flashlightsetting(); // make a dimming animation on the flashlight
+    BLE_message = pCharacteristic->getValue().c_str();
+    Serial.println(String("Message:") + BLE_message);
+    if ( BLE_message.startsWith(builtin_serialkey) && BLE_message.endsWith(builtin_serialkey)
+         && BLE_message.indexOf(BLE_SSID_KeyWord) > 0 && BLE_message.indexOf(BLE_Password_KeyWord) > 0 )
+    { // to enter this block, the fetched serial must have the format of: SK SSIDKW SSID PWDKW PWD SK
+      ssid = BLE_message.substring(BLE_message.indexOf(BLE_SSID_KeyWord) + BLE_SSID_Length_KeyWord, BLE_message.indexOf(BLE_Password_KeyWord));
+      password = BLE_message.substring(BLE_message.indexOf(BLE_Password_KeyWord) + BLE_Password_Length_KeyWord, BLE_message.length() - builtin_length_serialkey);
+      Serial.println(String("SSID:") + ssid);
+      Serial.println(String("Password:") + password);
+      break; // since the wifi credentials was fetched, terminate the loop
+    }
+    else if (BLE_message != String(builtin_serialkey) + String(BLE_RequestCredentials_KeyWord) + String(builtin_serialkey))
+    {
+      String BLE_message = String(builtin_serialkey) + String(BLE_RequestCredentials_KeyWord) + String(builtin_serialkey);
+      pCharacteristic->setValue(BLE_message.c_str()); // this tells the Master that I want the WiFi Credentials
+    }
+    else
+      delay(250);
+  }
+  pCharacteristic->setValue(""); // emptry string so that hackers will not have the time to see the credentials(ultra fast)
+  //END OF BLE SYSTEM
+
 connecttowifi:
   WiFi.begin(ssid.c_str(), password.c_str());
   customtimer = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(500);
+    flashlightsetting(); // make a dimming animation on the flashlight
+    delay(250);
     Serial.print(".");
     if ( (WiFi.status() == WL_CONNECT_FAILED) || (millis() - customtimer > WiFi_TryConnect_TimeOut) )
     { // create an access point to view the ip camera
+      if (millis() < 120000) // if after 2 minutes and still not connected, lets create an access point
+      {
+        BLE_message = String(builtin_serialkey) + String(BLE_WrongCredential_KeyWord) + String(builtin_serialkey);
+        pCharacteristic->setValue(BLE_message.c_str()); // this tells the Master that the given WiFi Credentials are Invalid/cant connect
+        goto BLEGetWiFi;
+      }
+      //////this will never be reached unless 2 minutes have passed
       WiFi.softAPConfig(IPAddress(192, 168, 1, 184), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0)); // set ip infos
       if (WiFi.softAP(builtin_AP_SSID, builtin_AP_Password) == true); // create our own wifi
       {
@@ -64,9 +255,7 @@ connecttowifi:
     }
     if (Serial.available() > 0)
     {
-      String dynamicstring = Serial.readString();
-      Serial.print(dynamicstring);
-      if (dynamicstring.indexOf("WiFi Setup") >= 0)
+      if ((Serial.readString()).indexOf("WiFi Setup") >= 0)
       {
         Serial.println("Type the SSID");
         while (Serial.available() <= 0) { }
@@ -91,7 +280,10 @@ connecttowifi:
         goto connecttowifi;
       }
     }
+    //increasetxpower();
   }
+  //increasetxpower(); // increase the power 1 time
+  //WiFi.setTxPower(defaulttxpower);
   if (WiFi.status() == WL_CONNECTED )// kapag nakaconnect tayo sa ibang wifi, kelangan nakaconfigure ang static IP address
   {
     Serial.print(String("\nWiFi connected using:\nSSID:") + ssid + String("\nPassword:") + password + String("\n"));
@@ -106,9 +298,48 @@ connecttowifi:
     staticip = WiFi.softAPIP(); // get the current ip of this device assigned by the router
 
   /* timeClient.begin(); // Initialize a NTPClient to get time
-  timeClient.update();
-  Serial.println(timeClient.getHours());
-  Serial.println(timeClient.getFormattedTime()); */
+    timeClient.update();
+    Serial.println(timeClient.getHours());
+    Serial.println(timeClient.getFormattedTime()); */
+
+  //BLE Fetching finished at this point... deliver the IP address to the Master
+  while (true)
+  {
+    flashlightsetting(); // make a dimming animation on the flashlight
+    String BLE_message = pCharacteristic->getValue().c_str();
+    Serial.println(String("Message:") + BLE_message);
+    if ( BLE_message.startsWith(builtin_serialkey) && BLE_message.endsWith(builtin_serialkey)
+         && BLE_message.indexOf(BLE_YouAreFree_KeyWord) > 0)
+    { // to enter this block, the fetched serial must have the format of: SK YAFKW SK
+      break; // since the wifi credentials was fetched, terminate the loop
+    }
+    else if (BLE_message != String(builtin_serialkey) +
+             String(BLE_IPAddress_KeyWord) +
+             String(staticip[0]) + String(BLE_Dot_KeyWord) +
+             String(staticip[1]) + String(BLE_Dot_KeyWord) +
+             String(staticip[2]) + String(BLE_Dot_KeyWord) +
+             String(staticip[3]) +
+             String(builtin_serialkey))
+    {
+      BLE_message = String(builtin_serialkey)
+                    + String(BLE_IPAddress_KeyWord)
+                    + String(staticip[0]) + String(BLE_Dot_KeyWord)
+                    + String(staticip[1]) + String(BLE_Dot_KeyWord)
+                    + String(staticip[2]) + String(BLE_Dot_KeyWord)
+                    + String(staticip[3])
+                    + String(builtin_serialkey);
+      pCharacteristic->setValue(BLE_message.c_str()); // this tells the Master my Private IP Address
+    }
+    else
+      delay(250);
+  }
+  // stop bluetooth since we do not need it anymore //this occupies almost 50MB of space
+  pAdvertising->stop();
+  pService->stop();
+  BLEDevice::deinit(true);
+  btStop();
+  //
+  flashlightsetting(LOW);
 
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
@@ -118,7 +349,7 @@ connecttowifi:
   Serial.println(String(":") + Port_WebSocket);
 
   pinMode(clientindicator_LED, OUTPUT);
-  pinMode(flashlight, OUTPUT);
+  //pinMode(flashlight, OUTPUT);
 
   cameraconfig.ledc_channel = LEDC_CHANNEL_0;
   cameraconfig.ledc_timer = LEDC_TIMER_0;
@@ -229,7 +460,7 @@ connecttowifi:
 }
 
 word fps;
-word fpstimer=millis();
+word fpstimer = millis();
 void loop()
 {
   if (WiFi.status() != WL_CONNECTED && wasSTA == true)
@@ -243,6 +474,8 @@ void loop()
   if (clientscount <= 0)
   {
     gostandbymode();
+    if (millis() > 3600e3) // make esp32 restart if it has been running for one hour, to refresh its memory
+      ESP.restart();
     return;
   }
 
@@ -265,19 +498,19 @@ void loop()
   webSocket.broadcastBIN((const uint8_t*) fb->buf, fb->len);
   esp_camera_fb_return(fb);
 
-  fps=1000/(millis()-fpstimer);
-  fpstimer=millis();
+  fps = 1000 / (millis() - fpstimer);
+  fpstimer = millis();
   if ((clientscount > 0 || digitalRead(clientindicator_LED) == HIGH) && millis() - customtimer > 1000 / clientscount)
   {
     Serial.println(String("Connected Clients:") + String(clientscount));
-    Serial.println(String(fps)+String("fps"));
+    Serial.println(String(fps) + String("fps"));
 
     /* if (millis() - timesincelastupdate >= 3600e3)
-    {
+      {
       timeClient.update();
       timesincelastupdate = millis();
       Serial.println("Time was Updated!");
-    } */
+      } */
 
     //byte currenthour = timeClient.getHours();
     //if ((currenthour < 22 && currenthour >= 6) && digitalRead(flashlight) == HIGH)
@@ -299,17 +532,60 @@ void loop()
   }
 }
 
+/* void increasetxpower()
+  {
+	switch(WiFi.getTxPower())
+    {
+    	case WIFI_POWER_MINUS_1dBm:
+    		WiFi.setTxPower(WIFI_POWER_2dBm);
+    		break;
+    	case WIFI_POWER_2dBm:
+    		WiFi.setTxPower(WIFI_POWER_5dBm);
+    		break;
+    	case WIFI_POWER_5dBm:
+    		WiFi.setTxPower(WIFI_POWER_7dBm);
+    		break;
+    	case WIFI_POWER_7dBm:
+    		WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    		break;
+    	case WIFI_POWER_8_5dBm:
+    		WiFi.setTxPower(WIFI_POWER_11dBm);
+    		break;
+    	case WIFI_POWER_11dBm:
+    		WiFi.setTxPower(WIFI_POWER_13dBm);
+    		break;
+    	case WIFI_POWER_13dBm:
+    		WiFi.setTxPower(WIFI_POWER_15dBm);
+    		break;
+    	case WIFI_POWER_15dBm:
+    		WiFi.setTxPower(WIFI_POWER_17dBm);
+    		break;
+    	case WIFI_POWER_17dBm:
+    		WiFi.setTxPower(WIFI_POWER_18_5dBm);
+    		break;
+    	case WIFI_POWER_18_5dBm:
+    		WiFi.setTxPower(WIFI_POWER_19dBm);
+    		break;
+    	case WIFI_POWER_19dBm:
+    		WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    		break;
+    	default:
+    		break;
+    }
+  Serial.println(String("Power Changed from ")+String(defaulttxpower)+String(" to ")+String(WiFi.getTxPower()));
+  } */
+
 void gostandbymode()
 {
   if (digitalRead(flashlight) == HIGH)
-    digitalWrite(flashlight, LOW);
+    flashlightsetting(LOW);
   if (digitalRead(clientindicator_LED) == HIGH)
     digitalWrite(clientindicator_LED, LOW);
   //delay(standby_timer);
 }
 
 /* String getIp()
-{
+  {
   WiFiClient client;
   if (client.connect("api.ipify.org", 80))
   {
@@ -329,70 +605,84 @@ void gostandbymode()
     line = client.readStringUntil('\n');
 
   return line;
-} */
+  } */
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   switch (type)
   {
     case WStype_TEXT:
-      if (payload[0] == '#')
       {
-        Serial.println(String("Flashlight State: ") + String(payload[1]));
-        digitalWrite(flashlight, payload[1] - 48); // ascii of 0 is 48... and ascii of 1 is 49
-      }
-      else if (payload[0] == '@')
-      {
-        Serial.println(String("Flipping Camera"));
-        if (camerasensor->status.vflip == 0)
+        switch (payload[0])
         {
-          camerasensor->set_vflip(camerasensor, 1);
-          camerasensor->set_hmirror(camerasensor, 1);
+          case '#':
+            {
+              Serial.println(String("Flashlight State: ") + String(payload[1]));
+              flashlightsetting(payload[1] - 48); // ascii of 0 is 48... and ascii of 1 is 49
+              break;
+            }
+          case '@':
+            {
+              Serial.println(String("Flipping Camera"));
+              if (camerasensor->status.vflip == 0)
+              {
+                camerasensor->set_vflip(camerasensor, 1);
+                camerasensor->set_hmirror(camerasensor, 1);
+              }
+              else
+              {
+                camerasensor->set_vflip(camerasensor, 0);
+                camerasensor->set_hmirror(camerasensor, 0);
+              }
+              break;
+            }
+          case '!':
+            {
+              byte chosenframesize = atoi((char*)&payload[1]);
+              byte savedsettings;
+
+              bitWrite(savedsettings, 0, camerasensor->status.vflip);
+              //bitWrite(savedsettings,1,camerasensor->status.hmirror);
+
+              esp_camera_deinit();
+
+              cameraconfig.frame_size = (framesize_t)chosenframesize;
+
+              /* if (chosenframesize > 6)
+                cameraconfig.jpeg_quality = 16-chosenframesize;
+                else
+                cameraconfig.jpeg_quality = 10; */
+              cameraconfig.jpeg_quality = chosenframesize;
+
+              // camera init
+              if (esp_camera_init(&cameraconfig) != ESP_OK) {
+                Serial.println("Camera init failed!");
+                return;
+              }
+
+              camerasensor->set_vflip(camerasensor, bitRead(savedsettings, 0));
+              camerasensor->set_hmirror(camerasensor, bitRead(savedsettings, 0));
+
+              /* if (chosenframesize > 6)
+                camerasensor->set_quality(camerasensor,16-chosenframesize);
+                else
+                camerasensor->set_quality(camerasensor, 10); */
+              camerasensor->set_quality(camerasensor, chosenframesize);
+
+              camerasensor->set_framesize(camerasensor, (framesize_t)chosenframesize);
+              Serial.println(String("framesize:") + String(camerasensor->status.framesize));
+              Serial.println(String("quality:") + String(camerasensor->status.quality));
+              break;
+            }
+          case '$':
+            {
+              ESP.restart();
+              break;
+            }
+          default:
+            break;
         }
-        else
-        {
-          camerasensor->set_vflip(camerasensor, 0);
-          camerasensor->set_hmirror(camerasensor, 0);
-        }
+        break;
       }
-      else if (payload[0] == '!')
-      {
-        byte chosenframesize = atoi((char*)&payload[1]);
-        byte savedsettings;
-
-
-        bitWrite(savedsettings, 0, camerasensor->status.vflip);
-        //bitWrite(savedsettings,1,camerasensor->status.hmirror);
-
-        esp_camera_deinit();
-
-        cameraconfig.frame_size = (framesize_t)chosenframesize;
-
-        /* if (chosenframesize > 6)
-          cameraconfig.jpeg_quality = 16-chosenframesize;
-        else
-          cameraconfig.jpeg_quality = 10; */
-        cameraconfig.jpeg_quality = chosenframesize;
-
-        // camera init
-        if (esp_camera_init(&cameraconfig) != ESP_OK) {
-          Serial.println("Camera init failed!");
-          return;
-        }
-
-        camerasensor->set_vflip(camerasensor, bitRead(savedsettings, 0));
-        camerasensor->set_hmirror(camerasensor, bitRead(savedsettings, 0));
-        
-        /* if (chosenframesize > 6)
-          camerasensor->set_quality(camerasensor,16-chosenframesize);
-        else
-          camerasensor->set_quality(camerasensor, 10); */
-        camerasensor->set_quality(camerasensor,chosenframesize);
-
-        camerasensor->set_framesize(camerasensor, (framesize_t)chosenframesize);
-        Serial.println(String("framesize:") + String(camerasensor->status.framesize));
-        Serial.println(String("quality:") + String(camerasensor->status.quality));
-      }
-      break;
     case WStype_CONNECTED:
       Serial.println(String("A Client was Connected with Number: ") + String(num));
       break;

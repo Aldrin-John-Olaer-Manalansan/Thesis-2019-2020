@@ -1,6 +1,6 @@
 HTTP/1.1 200 OK
 Content-Type: text/html
-Content-Length: 4610
+Content-Length: 4645
 Connection: closed
 
 <html>
@@ -10,13 +10,15 @@ Connection: closed
 		<style>
 			img
 			{
+				position: absolute;
+				top: 0
+				left: 0;
 				display: block;
 				margin-left: auto;
 				margin-right: auto;
 				height: 100%;
 				width: auto;
 			}
-			<!--*{ margin:0; } img { display: absolute; margin: 0 !important; height: 100vh;  width: 100vw; }-->
 			.switch {
 				position: relative;
 				display: inline-block;
@@ -79,16 +81,19 @@ Connection: closed
 				cursor: pointer;
 			}
 			.flipcambutton {border-radius: 20px;}
+			.restartbutton {border-radius: 20px;background-color: #f44336;}
 			.dropbtn {
 				background-color: #4CAF50;
 				color: white;
-				padding: 16px;
+				padding: 5px;
 				font-size: 16px;
 				border: none;
 				cursor: pointer;
 			}
 			.dropdown {
-				position: relative;
+				position: absolute;
+				top: 0;
+				left: 0;
 				display: inline-block;
 			}
 			.dropdown-content {
@@ -115,6 +120,7 @@ Connection: closed
 		</style>
 	</head>
 	<body style="background-color:#FFFFFF">
+		<img src="">
 		<div class="dropdown">
 			<button class="dropbtn">Settings</button>
 			<div class="dropdown-content">
@@ -133,6 +139,9 @@ Connection: closed
 					<button class="button flipcambutton" onclick="flipcamera()">Flip Camera</button>
 				</a>
 				<a href="#">
+					<button class="button restartbutton" onclick="restartcamera()">Restart Camera</button>
+				</a>
+				<a href="#">
 					<select id="resolution" onchange="changeresolution()">
 						<option value="10">UXGA(1600x1200)</option>
 						<option value="9">SXGA(1280x1024)</option>
@@ -149,7 +158,6 @@ Connection: closed
 				</a>
 			</div>
 		</div>
-		<img src="">
 		<script>
 			const img = document.querySelector('img');
 			const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.hostname + '/ws';
@@ -175,6 +183,9 @@ Connection: closed
 			}
 			function flipcamera(){
 				ws.send("@");
+			}
+			function restartcamera(){
+				ws.send("$");
 			}
 			function changeresolution(){
 				ws.send("!"+document.getElementById("resolution").value);
