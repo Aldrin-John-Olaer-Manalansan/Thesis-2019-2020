@@ -136,7 +136,7 @@ void constructtrashbin(byte* packet)
 
 void printpacketdetails(byte* packet)
 {
-  Serial.println("Received a Message:");
+  //Serial.println("Received a Message:");
 
   Serial.print("Transmitter Device: ");
   switch (datatypereadbits(packet[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT))

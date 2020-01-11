@@ -1,14 +1,13 @@
 /*
   COMPILE PASSED
   TRANSMISSION AND RECEPTION : TESTED and WORKING
-
   Communication Script:
   Slave	 - SmartSocket.ino
   Master - dummymaster.ino
 */
 // dito mag-Include ng Libraries
 #include <SPI.h>
-//#include <nRF24L01.h> // for old radios without plus(+)
+// #include <nRF24L01.h> // for old radios without plus(+)
 #include <RF24.h>
 #include "C:\Users\acer\Desktop\Thesis\Project\Source_Codes\ThesisLibraries\transceiver_library\transceiver_library.cpp"
 //
@@ -23,22 +22,49 @@
   SMARTSOCKET_PIN_RELAY         - ilagay nyo dito yung pin number ng relay
   SMARTSOCKET_PIN_CURRENTSENSOR - ilagay nyo dito yung pin number ng current-sensor
 */
-const byte __private_channel__[5] = {0b01001100, 0b11100000, 0b00010111, 0b01101100, 0b10101100}; // 1byte=8bits ; 5bytes=40bits
+// sample serial keys// can be changed
+// device 0
+const byte __private_channel__[5] =
+{
+  0b01001100, 0b11100000, 0b00010111, 0b01101100, 0b10101100
+}; // 1byte=8bits ; 5bytes=40bits
 
-#define SMARTSOCKET_PIN_RELAY 7
-#define SMARTSOCKET_PIN_CURRENTSENSOR A0
+// device 1
+// const byte __private_channel__[5] = {162, 111, 4, 54, 92}; // 1byte=8bits ; 5bytes=40bits
+// device 2
+// const byte __private_channel__[5] = {92 , 255, 134, 222, 0  };
+// device 3
+// const byte __private_channel__[5]={0  ,423,111,32 ,42 };
+// device 4
+// const byte __private_channel__[5]={12 ,182,33 ,12 ,87 };
+// device 5
+// const byte __private_channel__[5]={16 ,11 ,40 ,49 ,74 };
+// device 6
+// const byte __private_channel__[5]={122,199,153,163,102};
+// device 7
+// const byte __private_channel__[5]={136,0  ,0  ,12 ,192};
+//
+#define SMARTSOCKET_PIN_RELAY1 7
+#define SMARTSOCKET_PIN_RELAY2 6
+#define SMARTSOCKET_PIN_CURRENTSENSOR1 A0
+#define SMARTSOCKET_PIN_CURRENTSENSOR2 A1
 #define TRANSCEIVER_THISDEVICE_TYPE TRANSCEIVER_DEVICETYPE_SMARTSOCKET
-//#define TRANSCEIVER_THISDEVICE_TYPE TRANSCEIVER_DEVICETYPE_IPCAMERA
-#define TRANSCEIVER_PIN_SIGNALINDICATOR 6 // optional
-// arduino nano
+// #define TRANSCEIVER_THISDEVICE_TYPE TRANSCEIVER_DEVICETYPE_IPCAMERA
+#define TRANSCEIVER_SIGNALPIN_RED 3 // optional
+#define TRANSCEIVER_SIGNALPIN_GREEN 4  // optional
+#define TRANSCEIVER_SIGNALPIN_BLUE 5 // optional
+#define ledwithsignal digitalWrite(TRANSCEIVER_SIGNALPIN_GREEN,LOW);digitalWrite(TRANSCEIVER_SIGNALPIN_RED,HIGH);digitalWrite(TRANSCEIVER_SIGNALPIN_BLUE,HIGH);
+#define ledbusy digitalWrite(TRANSCEIVER_SIGNALPIN_GREEN,HIGH);digitalWrite(TRANSCEIVER_SIGNALPIN_RED,HIGH);digitalWrite(TRANSCEIVER_SIGNALPIN_BLUE,LOW);
+#define lednosignal digitalWrite(TRANSCEIVER_SIGNALPIN_GREEN,HIGH);digitalWrite(TRANSCEIVER_SIGNALPIN_RED,LOW);digitalWrite(TRANSCEIVER_SIGNALPIN_BLUE,HIGH);
+// arduino
 #define NRF_PIN_CE 9
 #define NRF_PIN_CSN 8
 // esp32
-//#define NRF_PIN_CE 25
-//#define NRF_PIN_CSN 26
+// #define NRF_PIN_CE 25
+// #define NRF_PIN_CSN 26
 //
 //
-//byte staticip[4] = {192, 168, 1, 111}; // aldrin test
+// byte staticip[4] = {192, 168, 1, 111}; // aldrin test
 // /////////////////////////////////////////////////
 // create an RF24 object
 // object definition map:
@@ -69,24 +95,33 @@ RF24 radio(NRF_PIN_CE, NRF_PIN_CSN); // CE, CSN
 // const byte __private_channel__[5] ={0b01001100, 0b11100000, 0b00010111, 0b01101100, 0b10101100}; // 1byte=8bits ; 5bytes=40bits
 // eto yung RASPBERRY-PI initialized CHANNEL na makukuha sa raspberry-pi(HUB) natin para sa PUBLIC COMMUNICATION aka lahat ng rf devices ,maririnig kapag nasa loob nito.
 // star topology ang inaapply ng channel nato sa thesis ntin, all devices transmits on all other devices, eg. ikaw sumigaw ka sa classroom lahat narinig ka
-byte __public_channel__[5] = {0};
+byte __public_channel__[5] =
+{
+  0
+};
+
 // //////////////////////
-
-unsigned long led_indicator_timeout=0; // timeout indicator of the led
+unsigned long led_indicator_timeout = 0; // timeout indicator of the led
 unsigned long __timesaver__ = 0; // used for timers
-byte __packet__[32] = {0}; // globally shared information buffer
-#if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
-char* __WiFi_SSID__ = NULL;
-char* __WiFi_Password__ = NULL;
-#endif
-//uint8_t __TRANSCEIVER_PALevel__;
-//rf24_datarate_e __TRANSCEIVER_DataRate__;
+byte __packet__[32] =
+{
+  0
+}; // globally shared information buffer
 
+#if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
+char * __WiFi_SSID__ = NULL;
+char * __WiFi_Password__ = NULL;
+#endif
+
+// uint8_t __TRANSCEIVER_PALevel__;
+// rf24_datarate_e __TRANSCEIVER_DataRate__;
 // //////////////Function Prototypes para sa Compiler////////////////
+
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
 void(* resetFunc) (void) = 0; // only declare the reset function if it is an arduino chip AKA smart socket chip
 void energyconsumption(double * getWh = NULL);
 #endif
+
 // //////////////////////////////////////////////////////////////////
 /*
   isang beses lang to tatawagin, iniinitialize nito yung
@@ -98,22 +133,26 @@ void energyconsumption(double * getWh = NULL);
 void setup() // tawagin lang to one time // sa setup() lang to gamitin
 {
   Serial.begin(115200);
-  pinMode(SMARTSOCKET_PIN_RELAY, OUTPUT);
-  pinMode(TRANSCEIVER_PIN_SIGNALINDICATOR, OUTPUT);
-  digitalWrite(SMARTSOCKET_PIN_RELAY, LOW);
-  digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW);
-  if (radio.begin()) // buhayin na yung module, magkainin na ng current yung nrf
+  pinMode(SMARTSOCKET_PIN_RELAY1, OUTPUT);
+  pinMode(SMARTSOCKET_PIN_RELAY2, OUTPUT);
+  pinMode(TRANSCEIVER_SIGNALPIN_RED, OUTPUT);
+  pinMode(TRANSCEIVER_SIGNALPIN_GREEN, OUTPUT);
+  pinMode(TRANSCEIVER_SIGNALPIN_BLUE, OUTPUT);
+  digitalWrite(SMARTSOCKET_PIN_RELAY1, LOW);
+  digitalWrite(SMARTSOCKET_PIN_RELAY2, LOW);
+  //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW);
+  ledbusy
+  if (radio.begin())
+    // buhayin na yung module, magkainin na ng current yung nrf
     Serial.println("Radio Begin Successfully");
   else
     Serial.println("Radio Failed Begin");
-  //__TRANSCEIVER_PALevel__=radio.getPALevel();
-  //__TRANSCEIVER_DataRate__=radio.getDataRate();
-
+  // __TRANSCEIVER_PALevel__=radio.getPALevel();
+  // __TRANSCEIVER_DataRate__=radio.getDataRate();
   radio.setChannel(HOMEPACKAGE_TRANSCEIVER_PHYSICALCHANNEL);
   radio.setPALevel(RF24_PA_MAX); // 0-3 , 0=lowest , 3=max
   radio.setDataRate(RF24_250KBPS); // slowest data rate for improved range of transmission and more low power consumption
   radio.setRetries(7, 15); // 2000us delay each failure, 15 retries(max already)
-
   // set the 1st pipe(0) sa private channel
   radio.openReadingPipe(1, __private_channel__); // eto yung private channel(room eg. B103 sa LSB) na papasukan ng mensahe(message)
   radio.stopListening();
@@ -128,11 +167,15 @@ redotransceiversetup:
   memset(__packet__, 0, 32); // yung data na kailangan natin is just 14 bytes... 3 bytes para sa header redundancy, 1 byte para sa packets info, 5 bytes para sa target private channel ng target device, 5 bytes para sa public channel info
   requestmessage(__packet__, TRANSCEIVER_REQUEST_GETPUBLICCHANNEL);
   printpacketdetails(__packet__);
-  radio.write(& __packet__, 32);
+  ledbusy
+  while (!radio.write(& __packet__, 32))
+  {
+  }
   // Set module as receiver
   radio.startListening(); // makikinig lang yung NRF24 gamit ang anim(6) na tenga nya
   __timesaver__ = millis();
-  while (true) // infinite loop
+  while (true)
+    // infinite loop
   {
     if (radio.available())
     {
@@ -146,12 +189,16 @@ redotransceiversetup:
         if (!memcmp(__public_channel__, __private_channel__, TRANSCEIVER_BYTECOUNT_RECEIVERSK))
           // this device private channel and the received target private channel of the sender must be the same to point out the this is the device it was referring to...
         {
+          //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH); // signal found
+          ledwithsignal
+          led_indicator_timeout = millis(); // for the led indicator
           memcpy(__public_channel__, __packet__ + TRANSCEIVER_BYTELOC_INFORMATION, TRANSCEIVER_BYTECOUNT_RECEIVERSK); // extract 5 bytes starting from the 15th byte of __packet__ and store to __public_channel__
           break; // break the infinite loop
         }
       }
     }
-    else if (millis() - __timesaver__ > 5000)
+    else if (millis() - __timesaver__ > 1500)
+      // was 5000
       goto redotransceiversetup;
   }
   // set the 2nd pipe(1) sa target channel
@@ -162,6 +209,7 @@ redotransceiversetup:
   Serial.println("");
 
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
+  ledbusy
 redogetwificredentials:
   radio.stopListening();
   if (radio.getDataRate() == RF24_250KBPS)
@@ -186,109 +234,153 @@ redogetwificredentials:
     else if (millis() - __timesaver__ > 5000)
       goto redogetwificredentials;
   }
+  ledwithsignal
+  led_indicator_timeout = millis();
 #endif
 }
 
 void loop()
 {
+
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
   energyconsumption(); // make the current sensor measure the energy consumption inside the function
-  if (millis() - led_indicator_timeout > TRANSCEIVER_HUB_FETCHINGINTERVAL + 1500 && digitalRead(TRANSCEIVER_PIN_SIGNALINDICATOR)) // if within 6 seconds there was no
+  if (millis() - led_indicator_timeout > TRANSCEIVER_HUB_FETCHINGINTERVAL + 1500 && digitalRead(TRANSCEIVER_SIGNALPIN_RED))
+    // if within 6 seconds there was no
   {
-    digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW); // no signal found
-    Serial.println(String("NO Operations done since ") +String((millis() - led_indicator_timeout)/1000) + String(" seconds ago"));
+    //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW); // no signal found
+    lednosignal
+    Serial.println(String("NO Operations done since ") + String((millis() - led_indicator_timeout) / 1000) + String(" seconds ago"));
   }
 #endif
+
   processrequest(); // do all the job of the relay and current sensor monitoring and cntrolling
 }
 
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
 // usage:
 // energyconsumption(); - run/put this function indefinitely at the loop() section
-// energyconsumption(&kWhData); // store the kwH since the last call at "kWhData"
+// energyconsumption(&WhData); // store the kwH since the last call at "WhData"
 void energyconsumption(double * getWh = NULL)
 {
   static unsigned long timeout = millis();
-  static unsigned long Current_RawValue_Summation = 0;
-  static word Current_Summation_SummedCount = 0;
-  static double Total_Energy_Consumption_Wh = 0.0;
-  int Current_RawValue = analogRead(SMARTSOCKET_PIN_CURRENTSENSOR);
-  if (Current_RawValue == 512 || Current_RawValue == 511)
-    Current_RawValue = 0;
-  else
-    Current_RawValue = abs(Current_RawValue - 511 - (Current_RawValue > 512 ? 1 : 0));
-  Current_RawValue_Summation += Current_RawValue;
-  Current_Summation_SummedCount++;
-
-  if (millis() - timeout >= 5000 || getWh != NULL)
+  static unsigned long Current_RawValue_Summation[2] = {0};
+  static word Current_Summation_SummedCount[2] =
   {
-    //Serial.println(String("Summation Ws:") + String(Current_RawValue_Summation));
-    //Serial.println(String("Summation Count:") + String(Current_Summation_SummedCount));
-    /* double Energy_Consumption_Wh=(Current_RawValue_Summation/511.0)*(6600.0/Current_Summation_SummedCount); //  Ws unit~~~6600W=220V*30A
-      Serial.print("Ws:");
-      Serial.println(Energy_Consumption_Wh,6);
-      Energy_Consumption_Wh/=(3600.0); // 1kh/3600000=(1k/1000)*(1s*1h/3600s) - 1h=1s*1h/3600s
-      Serial.print("Wh:");
-      Serial.println(Energy_Consumption_Wh,6);
-      Total_Energy_Consumption_Wh+=Energy_Consumption_Wh; // formula above is same as formula below(totalenergyconsumption)*/
-    Total_Energy_Consumption_Wh += (Current_RawValue_Summation / 511.0) * (6600.0 / Current_Summation_SummedCount) / 3600.0; // Wh unit
-    //Serial.print("Total Wh:");
-    //Serial.println(Total_Energy_Consumption_Wh, 6);
-    Current_RawValue_Summation = 0;
-    Current_Summation_SummedCount = 0;
-    timeout = millis();
-  }
-  if (getWh != NULL)
+    0
+  };
+  static double Total_Energy_Consumption_Wh[2] =
   {
-    getWh[0] = Total_Energy_Consumption_Wh;
-    Total_Energy_Consumption_Wh = 0.0;
+    0.0
+  };
+  for (byte index = 0; index <= 1; index++)
+  {
+    int Current_RawValue = analogRead(index == 0 ? SMARTSOCKET_PIN_CURRENTSENSOR1 : SMARTSOCKET_PIN_CURRENTSENSOR2);
+    if (Current_RawValue == 512 || Current_RawValue == 511)
+      Current_RawValue = 0;
+    else
+      Current_RawValue = abs(Current_RawValue - 511 - (Current_RawValue > 512 ? 1 : 0));
+    Current_RawValue_Summation[index] += Current_RawValue;
+    Current_Summation_SummedCount[index] ++;
+    if (millis() - timeout >= 1000)
+      // get Ws
+    {
+      // Serial.println(String("Summation Ws:") + String(Current_RawValue_Summation[index]));
+      // Serial.println(String("Summation Count:") + String(Current_Summation_SummedCount[index]));
+      /* double Energy_Consumption_Wh=(Current_RawValue_Summation[index]/511.0)*(6600.0/Current_Summation_SummedCount[index]); //  Ws unit~~~6600W=220V*30A
+        Serial.print("Ws:");
+        Serial.println(Energy_Consumption_Wh,6);
+        Energy_Consumption_Wh/=(3600.0); // 1kh/3600000=(1k/1000)*(1s*1h/3600s) - 1h=1s*1h/3600s
+        Serial.print("Wh:");
+        Serial.println(Energy_Consumption_Wh,6);
+        Total_Energy_Consumption_Wh[index]+=Energy_Consumption_Wh; // formula above is same as formula below(totalenergyconsumption)*/
+      Total_Energy_Consumption_Wh[index] += (Current_RawValue_Summation[index] / 511.0) * (6600.0 / Current_Summation_SummedCount[index]) / 3600.0; // Wh unit
+      // Serial.print("Total Wh:");
+      // Serial.println(Total_Energy_Consumption_Wh[index], 6);
+      Current_RawValue_Summation[index] = 0;
+      Current_Summation_SummedCount[index] = 0;
+      timeout = millis();
+    }
+    if (getWh != NULL)
+    {
+      getWh[index] = Total_Energy_Consumption_Wh[index];
+      Total_Energy_Consumption_Wh[index] = 0.0;
+    }
+    /* char datapiece[18];
+      dtostrf(Total_Energy_Consumption_Wh[index],18,4,datapiece);
+      Serial.print("char Total Wh:");
+      Serial.println(datapiece);
+      Energy_Consumption_Wh=atof(datapiece);
+      Serial.print("going back:");
+      Serial.println(Energy_Consumption_Wh,6); */
   }
-  /* char datapiece[18];
-    dtostrf(Total_Energy_Consumption_Wh,18,4,datapiece);
-    Serial.print("char Total Wh:");
-    Serial.println(datapiece);
-    Energy_Consumption_Wh=atof(datapiece);
-    Serial.print("going back:");
-    Serial.println(Energy_Consumption_Wh,6); */
 }
+
 #endif
 
 bool transmitmessage(byte * packet)
 {
   bool transmitted = false;
   radio.stopListening(); // gawing tagadaldal yung arduino gamit ang bibig(NRF24)
-  if (radio.getDataRate() == RF24_250KBPS)
-    radio.flush_tx();
+  // if (radio.getDataRate() == RF24_250KBPS)
+  // radio.flush_tx();
   if (datatypereadbits(packet[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_REPEATER)
   {
-    radio.openWritingPipe(packet); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
-    transmitted = radio.write(packet, 32); // broadcast yung message
+    byte target_channel[5];
+    memcpy(target_channel, packet + TRANSCEIVER_BYTELOC_RECEIVERSK, 5); // get the target channel of the source
+    unsigned long timeout = millis();
+    ledbusy
+    do
+    {
+      radio.openWritingPipe(target_channel); // eto yung target channel( hallway ng llyce ) na papasukan ng mensahe(message)
+      transmitted = radio.write(packet, 32);
+      if (transmitted)
+        break;
+      radio.openWritingPipe(__public_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
+      transmitted = radio.write(packet, 32);
+    }
+    while (!transmitted && millis() - timeout < 1000);
+    radio.openWritingPipe(__public_channel__); // ibalik natin sa default writing channel
+    led_indicator_timeout = millis();
+    ledwithsignal
+    if (transmitted)
+    {
+      //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+      led_indicator_timeout = millis();
+    }
   }
   else
   {
     constructtrashbin(packet);
     radio.openWritingPipe(__private_channel__); // eto yung target channel(room eg. B103 sa LSB) na papasukan ng mensahe(message)
+    ledbusy
     __timesaver__ = millis();
     do
     {
       transmitted = radio.write(packet, 32);
-      if (transmitted) // broadcast yung message
+      if (transmitted)
+        // broadcast yung message
         break;
       datatypewritebits(packet + TRANSCEIVER_BYTELOC_NRFTM, TRANSCEIVER_DEVICETYPE_REPEATER, TRANSCEIVER_NRFTM_BITCOUNT_TDT, TRANSCEIVER_NRFTM_BITLOC_TDT);
       radio.openWritingPipe(__public_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
       transmitted = radio.write(packet, 32);
-      if (transmitted) // broadcast yung message
+      if (transmitted)
+        // broadcast yung message
       {
-        digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+        //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+        ledwithsignal
         led_indicator_timeout = millis();
         break;
       }
-      //constructtrashbin(packet); // commented since this results spam of info to receivers
+      // constructtrashbin(packet); // commented since this results spam of info to receivers
       radio.setDataRate(radio.getDataRate() == RF24_250KBPS ? RF24_1MBPS : RF24_250KBPS);
       radio.openWritingPipe(__private_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
-      digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW);
+      //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, LOW);
+      lednosignal
       datatypewritebits(packet + TRANSCEIVER_BYTELOC_NRFTM, TRANSCEIVER_THISDEVICE_TYPE, TRANSCEIVER_NRFTM_BITCOUNT_TDT, TRANSCEIVER_NRFTM_BITLOC_TDT);
-    } while (!transmitted && millis() - __timesaver__ <= 1000);
+    }
+    while (!transmitted && millis() - __timesaver__ <= 1000);
+    led_indicator_timeout = millis();
+    ledwithsignal
     radio.setDataRate(RF24_250KBPS);
   }
   radio.openReadingPipe(0, __public_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
@@ -301,58 +393,61 @@ void processrequest()
   byte request = getrequest();
   if (request == 0)
     return; // if no requests
-  digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+  //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+  ledwithsignal
   led_indicator_timeout = millis();
-  //memset(__packet__, 0, 32); // empty the message buffer
+  // memset(__packet__, 0, 32); // empty the message buffer
   switch (request)
   {
       // # are compile time directives, if this conditions are stisfied, then they will be compiled, else not compiled
 
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
     case TRANSCEIVER_REQUEST_GETRELAYSTATEANDPOWERCONSUMPTION:
-    {
-      constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATEANDPOWERCONSUMPTION);
-      break;
-    }
+      {
+        constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATEANDPOWERCONSUMPTION);
+        break;
+      }
     case TRANSCEIVER_REQUEST_GETPOWERCONSUMPTION:
-    {
-      constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_POWERCONSUMPTION);
-      break;
-    }
+      {
+        constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_POWERCONSUMPTION);
+        break;
+      }
     case TRANSCEIVER_REQUEST_GETRELAYSTATE:
-    {
-      constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATE);
-      break;
-    }
-#elif (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
+      {
+        constructmesssage(__packet__, TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATE);
+        break;
+      }
+#elif(TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
     case TRANSCEIVER_REQUEST_GETIPADDRESS:
-    {
-      constructmesssage(__packet__, TRANSCEIVER_COMMAND_IPCAMERA_IPADDRESS);
-      break;
-    }
+      {
+        constructmesssage(__packet__, TRANSCEIVER_COMMAND_IPCAMERA_IPADDRESS);
+        break;
+      }
 #endif
 
     case TRANSCEIVER_REQUEST_PINGPONG:
-      //if ((datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_HUB)
-      //    || (datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_REPEATER))
-      //{
-    {
-      constructmesssage(__packet__, TRANSCEIVER_COMMAND_UNIVERSAL_PINGPONG);
-      break;
-    }
-    //}
-    //else
-    //  return; // do nothing
+      {
+        // if ((datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_HUB)
+        // || (datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_REPEATER))
+        // {
+        constructmesssage(__packet__, TRANSCEIVER_COMMAND_UNIVERSAL_PINGPONG);
+        break;
+        // }
+        // else
+        // return; // do nothing
+      }
     case TRANSCEIVER_REQUEST_RESTART:
-    {
-      Serial.println("Restarting Device!");
+      {
+        Serial.println("Restarting Device!");
+
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
-      resetFunc();
-#elif (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
-      ESP.restart();  // aldrin test
+        resetFunc();
+#elif(TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
+        ESP.restart(); // aldrin test
 #endif
-      break;
-    }
+
+        break;
+      }
     default:
       return; // do nothing
   }
@@ -377,7 +472,7 @@ void requestmessage(byte * message, byte requestswitch)
   message[TRANSCEIVER_BYTELOC_NRFTM] = 0b00100000 + (TRANSCEIVER_THISDEVICE_TYPE << TRANSCEIVER_NRFTM_BITLOC_TDT); // NRFTHM
   memcpy(message + TRANSCEIVER_BYTELOC_TRANSMITTERSK, __private_channel__, TRANSCEIVER_BYTECOUNT_TRANSMITTERSK);
   constructtrashbin(message);
-  //memset(message + TRANSCEIVER_BYTELOC_INFORMATION,0, TRANSCEIVER_BYTECOUNT_INFORMATION);
+  // memset(message + TRANSCEIVER_BYTELOC_INFORMATION,0, TRANSCEIVER_BYTECOUNT_INFORMATION);
   message[TRANSCEIVER_BYTELOC_INFORMATION] = requestswitch;
 }
 
@@ -387,26 +482,55 @@ void constructmesssage(byte * packet, byte commandswitch)
   memset(packet + TRANSCEIVER_BYTELOC_INFORMATION, 0, TRANSCEIVER_BYTECOUNT_INFORMATION);
   switch (commandswitch)
   {
+
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
     case TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATEANDPOWERCONSUMPTION:
       {
         Serial.println("Sending Relay State and Power Consumption.");
-        packet[TRANSCEIVER_BYTELOC_INFORMATION] = digitalRead(SMARTSOCKET_PIN_RELAY);
-        double kWhData = 0.0;
-        energyconsumption(& kWhData); // store the kwH since the last call at "kWhData"
-        dtostrf(kWhData, TRANSCEIVER_BYTECOUNT_WORDINFO, 4, packet + TRANSCEIVER_BYTELOC_INFORMATION + 1); // 4 means 4 decimal places
+        packet[TRANSCEIVER_BYTELOC_INFORMATION] = digitalRead(SMARTSOCKET_PIN_RELAY1);
+        bitWrite(packet[TRANSCEIVER_BYTELOC_INFORMATION], 1, digitalRead(SMARTSOCKET_PIN_RELAY2));
+        double WhData[2];
+        energyconsumption(WhData); // store the kwH since the last call at "WhData"
+        for (byte index = 0; index <= 1; index++)
+        {
+          unsigned long whole = WhData[index];
+          word decimal = (WhData[index] - whole) * pow(10, 4);
+          for (byte i = 0; i < 4; i++)
+          {
+            packet[14 + (6 * (index + 1)) + i] = whole >> (8 * i);
+            // Serial.println(packet[14+(6*(index+1))+i]);
+          }
+          packet[14 + (6 * (index + 1)) + 4] = decimal;
+          // Serial.println(packet[14+(6*(index+1))+4]);
+          packet[14 + (6 * (index + 1)) + 5] = decimal >> 8;
+          // Serial.println(packet[14+(6*(index+1))+5]);
+        }
         break;
       }
     case TRANSCEIVER_COMMAND_SMARTSOCKET_POWERCONSUMPTION:
       {
-        double kWhData = 0.0;
-        energyconsumption(& kWhData); // store the kwH since the last call at "kWhData"
-        dtostrf(kWhData, TRANSCEIVER_BYTECOUNT_INFORMATION, 4, packet + TRANSCEIVER_BYTELOC_INFORMATION); // 4 means 4 decimal places
+        double WhData[2];
+        energyconsumption(WhData); // store the kwH since the last call at "WhData"
+        for (byte index = 0; index <= 1; index++)
+        {
+          unsigned long whole = WhData[index];
+          word decimal = (WhData[index] - whole) * pow(10, 4);
+          for (byte i = 0; i < 4; i++)
+          {
+            packet[14 + (6 * (index + 1)) + i] = whole >> (8 * i);
+            // Serial.println(packet[14+(6*(index+1))+i]);
+          }
+          packet[14 + (6 * (index + 1)) + 4] = decimal;
+          // Serial.println(packet[14+(6*(index+1))+4]);
+          packet[14 + (6 * (index + 1)) + 5] = decimal >> 8;
+          // Serial.println(packet[14+(6*(index+1))+5]);
+        }
         break;
       }
     case TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATE:
       {
-        packet[TRANSCEIVER_BYTELOC_INFORMATION] = digitalRead(SMARTSOCKET_PIN_RELAY);
+        packet[TRANSCEIVER_BYTELOC_INFORMATION] = digitalRead(SMARTSOCKET_PIN_RELAY1);
+        bitWrite(packet[TRANSCEIVER_BYTELOC_INFORMATION], 1, digitalRead(SMARTSOCKET_PIN_RELAY2));
         Serial.println(String("Relay State Sent: ") + String(packet[TRANSCEIVER_BYTELOC_INFORMATION]));
         break;
       }
@@ -423,6 +547,7 @@ void constructmesssage(byte * packet, byte commandswitch)
         break;
       }
 #endif
+
     case TRANSCEIVER_COMMAND_UNIVERSAL_PINGPONG:
       {
         break;
@@ -444,20 +569,19 @@ void constructmesssage(byte * packet, byte commandswitch)
 byte getrequest()
 {
   memset(__packet__, 0, 32); // empty string first
-  //radio.flush_rx(); // flush rx messages
+  // radio.flush_rx(); // flush rx messages
   // Set module as receiver
   radio.startListening(); // makikinig lang yung NRF24 gamit ang anim(6) na tenga nya
   // Read the data if available in buffer
   __timesaver__ = millis();
-  while (radio.available() && millis() - __timesaver__ <= 5000)
+  while (radio.available() && millis() - __timesaver__ <= 1000)
     // wait for the signal to reach
   {
     // sabi sa documentary ng nrf24, every packet, 32bytes ang laman kaya 32 bytes of array yung ating "text"
     radio.read(& __packet__, 32);
-
     byte publictrashbin[TRANSCEIVER_BYTECOUNT_TRASHBIN];
-    //if (datatypereadbits(__packet__[0], 6, 2) == TRANSCEIVER_DEVICETYPE_REPEATER)
-    //{
+    // if (datatypereadbits(__packet__[0], 6, 2) == TRANSCEIVER_DEVICETYPE_REPEATER)
+    // {
     memcpy(publictrashbin, __packet__ + TRANSCEIVER_BYTELOC_TRASHBIN, TRANSCEIVER_BYTECOUNT_TRASHBIN);
     if (wasintrashbin(publictrashbin))
     {
@@ -466,17 +590,38 @@ byte getrequest()
                      + String(__packet__[TRANSCEIVER_BYTELOC_TRASHBIN + 1]));
       continue;
     }
-    //}
+    // }
     if (datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_TDT, TRANSCEIVER_NRFTM_BITCOUNT_TDT) == TRANSCEIVER_DEVICETYPE_REPEATER
         && memcmp(__packet__ + TRANSCEIVER_BYTELOC_RECEIVERSK, __private_channel__, TRANSCEIVER_BYTECOUNT_RECEIVERSK)) // memcmp returns true when they are not the same
     {
       Serial.println("Public:");
       printpacketdetails(__packet__);
       radio.stopListening(); // gawing tagadaldal yung arduino gamit ang bibig(NRF24)
-      if (radio.getDataRate() == RF24_250KBPS)
-        radio.flush_tx();
-      radio.openWritingPipe(__public_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
-      radio.write(__packet__, 32);
+      // if (radio.getDataRate() == RF24_250KBPS)
+      // radio.flush_tx();
+      byte target_channel[5];
+      memcpy(target_channel, __packet__ + TRANSCEIVER_BYTELOC_RECEIVERSK, 5); // get the target channel of the source
+      unsigned long timeout = millis();
+      boolean transmitted = false;
+      ledbusy
+      do
+      {
+        radio.openWritingPipe(target_channel); // eto yung target channel( hallway ng llyce ) na papasukan ng mensahe(message)
+        transmitted = radio.write(__packet__, 32);
+        if (transmitted)
+          break;
+        radio.openWritingPipe(__public_channel__); // eto yung target public channel( hallway ng llyce ) na papasukan ng mensahe(message)
+        transmitted = radio.write(__packet__, 32);
+      }
+      while (!transmitted && millis() - timeout < 1000);
+      radio.openWritingPipe(__public_channel__); // ibalik natin sa default writing channel
+      led_indicator_timeout = millis();
+      ledwithsignal
+      if (transmitted)
+      {
+        //digitalWrite(TRANSCEIVER_PIN_SIGNALINDICATOR, HIGH);
+        led_indicator_timeout = millis();
+      }
       radio.startListening(); // makikinig lang yung NRF24 gamit ang anim(6) na tenga nya
     }
     else if ((datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_RDT, TRANSCEIVER_NRFTM_BITCOUNT_RDT) == TRANSCEIVER_THISDEVICE_TYPE || datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_RDT, TRANSCEIVER_NRFTM_BITCOUNT_RDT) == TRANSCEIVER_DEVICETYPE_ANYDEVICE)
@@ -489,18 +634,45 @@ byte getrequest()
       switch (datatypereadbits(__packet__[TRANSCEIVER_BYTELOC_NRFTM], TRANSCEIVER_NRFTM_BITLOC_COMMAND, TRANSCEIVER_NRFTM_BITCOUNT_COMMAND))
       {
         case TRANSCEIVER_COMMAND_UNIVERSAL_REQUEST:
-          return __packet__[TRANSCEIVER_BYTELOC_INFORMATION]; // this is the requestswitch information
+          {
+
+#if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
+            if (__packet__[TRANSCEIVER_BYTELOC_INFORMATION] == TRANSCEIVER_REQUEST_GETRELAYSTATEANDPOWERCONSUMPTION && __packet__[TRANSCEIVER_BYTELOC_INFORMATION + 3] == 1)
+            {
+              digitalWrite(SMARTSOCKET_PIN_RELAY1, __packet__[TRANSCEIVER_BYTELOC_INFORMATION + 1]);
+              digitalWrite(SMARTSOCKET_PIN_RELAY2, __packet__[TRANSCEIVER_BYTELOC_INFORMATION + 2]);
+            }
+#endif
+
+            return __packet__[TRANSCEIVER_BYTELOC_INFORMATION]; // this is the requestswitch information
+          }
 
 #if (TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_SMARTSOCKET)
         case TRANSCEIVER_COMMAND_SMARTSOCKET_RELAYSTATE:
-          Serial.println(String("Relay was Changed to:") + String(__packet__[TRANSCEIVER_BYTELOC_INFORMATION]));
-          digitalWrite(SMARTSOCKET_PIN_RELAY, __packet__[TRANSCEIVER_BYTELOC_INFORMATION]);
-          break;
+          {
+            if (__packet__[TRANSCEIVER_BYTELOC_INFORMATION] == 0 || __packet__[TRANSCEIVER_BYTELOC_INFORMATION] == 1)
+            {
+              digitalWrite(SMARTSOCKET_PIN_RELAY1, __packet__[TRANSCEIVER_BYTELOC_INFORMATION + 1]);
+              Serial.println("Relay 1 was Changed to:" + String(__packet__[TRANSCEIVER_BYTELOC_INFORMATION + 1]));
+            }
+            if (__packet__[TRANSCEIVER_BYTELOC_INFORMATION] == 0 || __packet__[TRANSCEIVER_BYTELOC_INFORMATION] == 2)
+            {
+              digitalWrite(SMARTSOCKET_PIN_RELAY2, __packet__[TRANSCEIVER_BYTELOC_INFORMATION + 2]);
+              Serial.println("Relay 2 was Changed to:" + String(__packet__[TRANSCEIVER_BYTELOC_INFORMATION + 2]));
+            }
+            break;
+          }
 #elif(TRANSCEIVER_THISDEVICE_TYPE == TRANSCEIVER_DEVICETYPE_IPCAMERA)
         case TRANSCEIVER_COMMAND_IPCAMERA_WIFICREDENTIALS:
           {
-            static word WiFi_CharLength[2] = {0};
-            unsigned long packetwasreceived[2] = {0}; // initially set all packet was received to false // max of 32 packets or 2^5
+            static word WiFi_CharLength[2] =
+            {
+              0
+            };
+            unsigned long packetwasreceived[2] =
+            {
+              0
+            }; // initially set all packet was received to false // max of 32 packets or 2^5
             packetwasreceived[0] = __packet__[TRANSCEIVER_BYTELOC_INFORMATION] + (__packet__[TRANSCEIVER_BYTELOC_PACKETINFO] << 8); // temporarily use this variable, i will empty it again
             byte packetscount[2];
             packetscount[0] = datatypereadbits(packetwasreceived[0], 6, 5);
@@ -600,7 +772,8 @@ recoverlostpackets:
                   goto recoverlostpackets;
                 }
               }
-              if (__WiFi_SSID__ != NULL) // ssid exist and not had timeout
+              if (__WiFi_SSID__ != NULL)
+                // ssid exist and not had timeout
               {
                 Serial.print("\nSSID was Set to:");
                 for (word i = 0; i < WiFi_CharLength[0]; i++)
@@ -608,15 +781,16 @@ recoverlostpackets:
                 Serial.print("\nPassword was Set to:");
                 for (word i = 0; i < WiFi_CharLength[1]; i++)
                   Serial.print(__WiFi_Password__[i]);
-                WiFi.begin(__WiFi_SSID__, __WiFi_Password__);  // aldrin test
+                WiFi.begin(__WiFi_SSID__, __WiFi_Password__); // aldrin test
                 __timesaver__ = millis();
                 while (WiFi.status() != WL_CONNECTED)
                 {
                   delay(500);
                   Serial.print(".");
-                  if ( (WiFi.status() == WL_CONNECT_FAILED) || (millis() - __timesaver__ > 10000) ) // maghintay 10 sec kung di prin connected, request ulit wifi password
+                  if ((WiFi.status() == WL_CONNECT_FAILED) || (millis() - __timesaver__ > 10000))
+                    // maghintay 10 sec kung di prin connected, request ulit wifi password
                   {
-                    //some code here
+                    // some code here
                     break;
                   }
                 }
@@ -652,7 +826,7 @@ recoverlostpackets:
             Serial.print("You got a Char Message:");
             for (__loopindex__ = 0; __loopindex__ < TRANSCEIVER_BYTECOUNT_INFORMATION; __loopindex__++)
             {
-              Serial.print(__packet__[TRANSCEIVER_BYTELOC_INFORMATION + __loopindex__]);
+              Serial.print("  " + String(__packet__[TRANSCEIVER_BYTELOC_INFORMATION + __loopindex__]));
             }
             Serial.println("");
             break;
