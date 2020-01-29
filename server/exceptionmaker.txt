@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/pi/Documents/server/test.py", line 5, in <module>
+    hello=bytearray(var)
+TypeError: string argument without an encoding
