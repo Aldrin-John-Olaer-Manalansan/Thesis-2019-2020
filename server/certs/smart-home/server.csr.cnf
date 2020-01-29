@@ -1,0 +1,14 @@
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+
+[dn]
+C=PH
+ST=Zambales
+L=Olongapo
+O=LSB
+OU=Engineering
+emailAddress=jb.ladiero@icloud.com
+CN = smart-home.local
