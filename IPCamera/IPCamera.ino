@@ -1,6 +1,8 @@
 //WiFi Related Libraries
 #include <WiFi.h>
 #include "WebSocketsServer.h"
+#include <ESPmDNS.h>
+
 //Bluetooth Related Libraries
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
@@ -8,19 +10,22 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 
+//Servo Library
+#include "ThesisServo.h"
+
+//Time Library
 //#include <NTPClient.h>
 //#include <WiFiUdp.h>
 
 //Camera Related Libraries
 #include <esp_camera.h>
-#include "camera_pins.h"
 
 #define WiFi_TryConnect_TimeOut 20000 // ilang  milliseconds maghihintay ang esp32 sa pag connect
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
-#define IPCAMERA_SERVICEUUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define IPCAMERA_CHARACTERISTICSUUID_WIFICREDENTIALS "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define IPCAMERA_SERVICEUUID                         "eca9c05a-1250-41a6-9869-b455f8c96f80"
+#define IPCAMERA_CHARACTERISTICSUUID_WIFICREDENTIALS "769c9614-8180-4722-9ce5-55a03b30fb5a"
 
 #define BLE_Dot_KeyWord "nU)7S"
 #define BLE_Dot_Length_KeyWord 5 // length ng serial key sa taas
@@ -36,22 +41,59 @@
 #define BLE_SSID_Length_KeyWord 15 // length ng serial key sa taas
 #define BLE_Password_KeyWord "p!i^p##0&eOsqm3"
 #define BLE_Password_Length_KeyWord 15 // length ng serial key sa taas
-#define builtin_serialkey "mWQa!e6IqCISo%3" // eto yung UNIQUE Serial Key ng Device nato
-#define builtin_length_serialkey 15 // length ng serial key sa taas
+//#define builtin_serialkey "mWQa!e6IqCISo%3" // eto yung UNIQUE Serial Key ng Device nato
+//#define builtin_length_serialkey 15 // length ng serial key sa taas
+#define builtin_serialkey "z8fqa2j6" // eto yung UNIQUE Serial Key ng Device nato
+#define builtin_length_serialkey 8 // length ng serial key sa taas
 
-#define builtin_AP_SSID "IP Camera: mWQa!e6IqCISo*3" // eto yung SSID ng WiFi na gagawin ng device nato
+#define builtin_AP_SSID "IP Camera: z8fqa2j6" // eto yung SSID ng WiFi na gagawin ng device nato
 #define builtin_AP_Password "Ba0!*sL8" // eto yung password ng WiFi na gagawin ng device nato
 
-#define Port_WebSocket 80 // set the websocket listen port to port 80(do not change this port because you will need to modify my html found at "WebSocketsServer.h" if you want to...)
+#define Port_WebSocketServer 80 // set the websocket listen port to port 80(do not change this port because you will need to modify my html found at "WebSocketsServer.h" if you want to...)
 
 #define standby_timer 500
 
 #define flashlight_ledc_freq 5000
-#define flashlight_ledc_channel 0
+#define flashlight_ledc_channel 11
 #define flashlight_ledc_resolution 16
 #define flashlight 4
 
-#define clientindicator_LED 12
+#define PIN_servo_X 12
+#define PIN_servo_Y 13
+#define ServoX_Channel 7
+#define ServoY_Channel 9
+#define ServoX_defaultAngle 90 // 0-180
+#define ServoY_defaultAngle 90 // 0-180
+
+//#define PIN_clientindicator_LED 12
+#define PIN_clientindicator_RED 15 // 2
+#define PIN_clientindicator_GREEN 14
+#define PIN_clientindicator_BLUE 2
+
+#define ledhasclient digitalWrite(PIN_clientindicator_RED,HIGH);digitalWrite(PIN_clientindicator_GREEN,HIGH);digitalWrite(PIN_clientindicator_BLUE,LOW);
+#define ledwithsignal digitalWrite(PIN_clientindicator_RED,HIGH);digitalWrite(PIN_clientindicator_GREEN,LOW);digitalWrite(PIN_clientindicator_BLUE,HIGH);
+#define ledbusy digitalWrite(PIN_clientindicator_RED,LOW);digitalWrite(PIN_clientindicator_GREEN,HIGH);digitalWrite(PIN_clientindicator_BLUE,HIGH);
+
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+Servo ServoX;  // create the X-Axis servo object to control a servo
+Servo ServoY;  // create the Y-Axis servo object to control a servo
 
 /* WiFiUDP ntpUDP;
   NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800, 3600e3);
@@ -64,13 +106,18 @@ camera_config_t cameraconfig;
 
 word customtimer = 0;
 bool wasSTA = false;
+bool camerainitialized = false;
 // wifi_power_t defaulttxpower=WiFi.getTxPower();
 
 //String ssid = "Manalansan";
 //String password = "Manalansan@123!";
-String ssid, password; // empty for demonstration of ssid fetching via bluetooth
+String ssid = "Jalibee";
+String password = "3.1415926536";
+//String ssid = "SKYWORTH-C29A";
+//String password="176684990";
+//String ssid, password; // empty for demonstration of ssid fetching via bluetooth
 
-WebSocketsServer webSocket = WebSocketsServer(Port_WebSocket, "/ws"); //initialize websocket
+WebSocketsServer webSocket = WebSocketsServer(Port_WebSocketServer, "/ws"); //initialize websocket
 
 #define dutycycle_spacing 32
 void flashlightsetting(byte setting = 2)
@@ -163,8 +210,14 @@ void GetThisDeviceBLEAddress(char* BLE_Address)
 
 }
 
+TaskHandle_t Core0_Handle;
 void setup()
 {
+  pinMode(PIN_clientindicator_RED, OUTPUT);
+  pinMode(PIN_clientindicator_GREEN, OUTPUT);
+  pinMode(PIN_clientindicator_BLUE, OUTPUT);
+  ledbusy
+
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
@@ -200,7 +253,7 @@ void setup()
   BLEDevice::startAdvertising();
   Serial.println("Advertisement Initialted!");
 BLEGetWiFi:
-  while (true)
+  while (ssid == "" && password == "")
   {
     flashlightsetting(); // make a dimming animation on the flashlight
     BLE_message = pCharacteristic->getValue().c_str();
@@ -239,6 +292,7 @@ connecttowifi:
       {
         BLE_message = String(builtin_serialkey) + String(BLE_WrongCredential_KeyWord) + String(builtin_serialkey);
         pCharacteristic->setValue(BLE_message.c_str()); // this tells the Master that the given WiFi Credentials are Invalid/cant connect
+        ssid = ""; password = "";
         goto BLEGetWiFi;
       }
       //////this will never be reached unless 2 minutes have passed
@@ -282,17 +336,30 @@ connecttowifi:
     }
     //increasetxpower();
   }
+
+  wasSTA = !MDNS.begin((String("ipcamera_") + String(builtin_serialkey)).c_str()); // recycle variable and change later
+  //wasSTA = !MDNS.begin("thesiscam"); // recycle variable and change later
+  if (!wasSTA)
+  {
+    MDNS.addService("http", "tcp", Port_WebSocketServer);
+    Serial.println("mDNS responder started");
+  }
+  else
+    Serial.println("Error setting up MDNS responder!");
+
   //increasetxpower(); // increase the power 1 time
   //WiFi.setTxPower(defaulttxpower);
   if (WiFi.status() == WL_CONNECTED )// kapag nakaconnect tayo sa ibang wifi, kelangan nakaconfigure ang static IP address
   {
     Serial.print(String("\nWiFi connected using:\nSSID:") + ssid + String("\nPassword:") + password + String("\n"));
-    staticip = WiFi.localIP(); // get the current ip of this device assigned by the router
-    staticip[3] = 184; // set the fourth octet to 184
-    if (!WiFi.config(staticip, WiFi.gatewayIP(), WiFi.subnetMask(), IPAddress(8, 8, 8, 8), IPAddress(1, 1, 1, 1))) { // set the static ip address
-      Serial.println("STA Failed to configure");
-    }
-    wasSTA = true;
+    //if (wasSTA)
+    //{
+      staticip = WiFi.localIP(); // get the current ip of this device assigned by the router
+      //staticip[3] = 184; // set the fourth octet to 184
+      if (!WiFi.config(staticip, WiFi.gatewayIP(), WiFi.subnetMask(), IPAddress(8, 8, 8, 8), IPAddress(1, 1, 1, 1))) // set the static ip address
+        Serial.println("STA Failed to configure");
+    //}
+    wasSTA = true; // force to become true
   }
   else
     staticip = WiFi.softAPIP(); // get the current ip of this device assigned by the router
@@ -303,7 +370,8 @@ connecttowifi:
     Serial.println(timeClient.getFormattedTime()); */
 
   //BLE Fetching finished at this point... deliver the IP address to the Master
-  while (true)
+  /* customtimer = millis();
+  while (millis() - customtimer <= 6000)
   {
     flashlightsetting(); // make a dimming animation on the flashlight
     String BLE_message = pCharacteristic->getValue().c_str();
@@ -332,7 +400,7 @@ connecttowifi:
     }
     else
       delay(250);
-  }
+  } */
   // stop bluetooth since we do not need it anymore //this occupies almost 50MB of space
   pAdvertising->stop();
   pService->stop();
@@ -342,13 +410,14 @@ connecttowifi:
   flashlightsetting(LOW);
 
   webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
 
   Serial.println("Camera Ready! type this URL to access the Video Stream:");
-  Serial.print(staticip);
-  Serial.println(String(":") + Port_WebSocket);
+  Serial.println(String(staticip[0])+ '.'
+                +String(staticip[1])+ '.'
+                +String(staticip[2])+ '.'
+                +String(staticip[3])+ ':' + String(Port_WebSocketServer)
+  			+ " or http://ipcamera_" + String(builtin_serialkey) + ".local");
 
-  pinMode(clientindicator_LED, OUTPUT);
   //pinMode(flashlight, OUTPUT);
 
   cameraconfig.ledc_channel = LEDC_CHANNEL_0;
@@ -390,9 +459,11 @@ connecttowifi:
 
   // camera init
   if (esp_camera_init(&cameraconfig) != ESP_OK) {
+    camerainitialized = false;
     Serial.println("Camera init failed!");
     return;
   }
+  else camerainitialized = true;
 
   camerasensor = esp_camera_sensor_get();
 
@@ -423,7 +494,7 @@ connecttowifi:
   ////camerasensor->detection_enabled=0;
   ////camerasensor->recognition_enabled=0;
 
-  Serial.println(String("framesize:") + String(camerasensor->status.framesize));
+  /* Serial.println(String("framesize:") + String(camerasensor->status.framesize));
   Serial.println(String("quality:") + String(camerasensor->status.quality));
   Serial.println(String("brightness:") + String(camerasensor->status.brightness));
   Serial.println(String("contrast:") + String(camerasensor->status.contrast));
@@ -447,7 +518,7 @@ connecttowifi:
   Serial.println(String("vflip:") + String(camerasensor->status.vflip));
   Serial.println(String("hmirror:") + String(camerasensor->status.hmirror));
   Serial.println(String("dcw:") + String(camerasensor->status.dcw));
-  Serial.println(String("colorbar:") + String(camerasensor->status.colorbar));
+  Serial.println(String("colorbar:") + String(camerasensor->status.colorbar)); */
 
   //initial sensors are flipped vertically and colors are a bit saturated
   if (camerasensor->id.PID == OV3660_PID) {
@@ -457,21 +528,29 @@ connecttowifi:
   }
 
   //Serial.println(String("public ip:") + getIp());
+  xTaskCreatePinnedToCore(
+    Core0Cater,              /* Task function. */
+    "Core0 Catering System", /* name of task. */
+    10000,                    /* Stack size of task */
+    NULL,                    /* parameter of the task */
+    0,                       /* priority of the task */
+    & Core0_Handle,          /* Task handle to keep track of created task */
+    0);                      /* pin task to core 0 */
 }
-
 word fps;
 word fpstimer = millis();
 void loop()
 {
+  //Serial.println("ThisWater:"+String(uxTaskGetStackHighWaterMark(NULL)));
+  //Serial.println("ThisHeap"+String(ESP.getFreeHeap()));
   if (WiFi.status() != WL_CONNECTED && wasSTA == true)
   {
     gostandbymode();
     ESP.restart();
   }
 
-  webSocket.loop();
   byte clientscount = webSocket.connectedClients(false);
-  if (clientscount <= 0)
+  if (clientscount <= 0 || !camerainitialized)
   {
     gostandbymode();
     if (millis() > 3600e3) // make esp32 restart if it has been running for one hour, to refresh its memory
@@ -495,12 +574,18 @@ void loop()
     return;
   }
 
+  if (digitalRead(PIN_clientindicator_GREEN) == LOW || digitalRead(PIN_clientindicator_RED) == LOW)
+  {
+    Serial.println("hasclient");
+    ledhasclient
+  }
+
   webSocket.broadcastBIN((const uint8_t*) fb->buf, fb->len);
   esp_camera_fb_return(fb);
 
   fps = 1000 / (millis() - fpstimer);
   fpstimer = millis();
-  if ((clientscount > 0 || digitalRead(clientindicator_LED) == HIGH) && millis() - customtimer > 1000 / clientscount)
+  if ((clientscount > 0 || digitalRead(PIN_clientindicator_BLUE) == LOW) && millis() - customtimer > 1000 / clientscount)
   {
     Serial.println(String("Connected Clients:") + String(clientscount));
     Serial.println(String(fps) + String("fps"));
@@ -518,14 +603,14 @@ void loop()
     //else if ((currenthour >= 22 || currenthour < 6) && digitalRead(flashlight) == LOW)
     //  digitalWrite(flashlight, HIGH);
 
-    if (digitalRead(clientindicator_LED) != HIGH)
+    if (digitalRead(PIN_clientindicator_BLUE) != HIGH)
     {
-      digitalWrite(clientindicator_LED, HIGH);
+      digitalWrite(PIN_clientindicator_BLUE, HIGH);
       Serial.println("HIGH");
     }
     else
     {
-      digitalWrite(clientindicator_LED, LOW);
+      digitalWrite(PIN_clientindicator_BLUE, LOW);
       Serial.println("LOW");
     }
     customtimer = millis();
@@ -579,8 +664,15 @@ void gostandbymode()
 {
   if (digitalRead(flashlight) == HIGH)
     flashlightsetting(LOW);
-  if (digitalRead(clientindicator_LED) == HIGH)
-    digitalWrite(clientindicator_LED, LOW);
+  if (digitalRead(PIN_clientindicator_BLUE) == LOW || digitalRead(PIN_clientindicator_RED) == LOW)
+  {
+    Serial.println("withsignal");
+    ledwithsignal
+  }
+  if (ServoX.read() != ServoX_defaultAngle)
+    ServoX.write(ServoX_defaultAngle);
+  if (ServoY.read() != ServoY_defaultAngle)
+    ServoY.write(ServoY_defaultAngle);
   //delay(standby_timer);
 }
 
@@ -608,12 +700,34 @@ void gostandbymode()
   } */
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  static unsigned long cooldown = 0;
+  ledbusy
   switch (type)
   {
     case WStype_TEXT:
       {
         switch (payload[0])
         {
+          case 'X':
+            {
+              if (millis() - cooldown > 250)
+              {
+                byte Servo_Axis = atoi((char*)&payload[1]);
+                Serial.println("Changing X-Servo to " + String(Servo_Axis));
+                ServoX.write(Servo_Axis);
+              }
+              break;
+            }
+          case 'Y':
+            {
+              if (millis() - cooldown > 250)
+              {
+                byte Servo_Axis = atoi((char*)&payload[1]);
+                Serial.println("Changing Y-Servo to " + String(Servo_Axis));
+                ServoY.write(Servo_Axis);
+              }
+              break;
+            }
           case '#':
             {
               Serial.println(String("Flashlight State: ") + String(payload[1]));
@@ -635,14 +749,24 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
               }
               break;
             }
+          case '%':
+            {
+              cameraconfig.jpeg_quality = atoi((char*)&payload[1]);
+              camerasensor->set_quality(camerasensor, atoi((char*)&payload[1]));
+              Serial.println("Quality set to:" + String(camerasensor->status.quality));
+              break;
+            }
           case '!':
             {
+              ServoX.detach();
+              ServoY.detach();
               byte chosenframesize = atoi((char*)&payload[1]);
               byte savedsettings;
 
               bitWrite(savedsettings, 0, camerasensor->status.vflip);
               //bitWrite(savedsettings,1,camerasensor->status.hmirror);
 
+              camerainitialized = false;
               esp_camera_deinit();
 
               cameraconfig.frame_size = (framesize_t)chosenframesize;
@@ -655,9 +779,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
 
               // camera init
               if (esp_camera_init(&cameraconfig) != ESP_OK) {
+                camerainitialized = false;
                 Serial.println("Camera init failed!");
                 return;
               }
+              else camerainitialized = true;
 
               camerasensor->set_vflip(camerasensor, bitRead(savedsettings, 0));
               camerasensor->set_hmirror(camerasensor, bitRead(savedsettings, 0));
@@ -671,6 +797,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
               camerasensor->set_framesize(camerasensor, (framesize_t)chosenframesize);
               Serial.println(String("framesize:") + String(camerasensor->status.framesize));
               Serial.println(String("quality:") + String(camerasensor->status.quality));
+
+              ServoX.attach(PIN_servo_X, ServoX_Channel); // attaches the servo on pin 18 to the servo object
+              ServoY.attach(PIN_servo_Y, ServoY_Channel); // attaches the servo on pin 18 to the servo object
+
               break;
             }
           case '$':
@@ -691,5 +821,22 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       break;
     default:
       break;
+  }
+  //ledhasclient
+}
+
+void Core0Cater(void * pvParameters)
+{
+  // setup
+  ServoX.attach(PIN_servo_X, ServoX_Channel); // attaches the servo on pin 18 to the servo object
+  ServoY.attach(PIN_servo_Y, ServoY_Channel); // attaches the servo on pin 18 to the servo object
+  ServoX.write(ServoX_defaultAngle);
+  ServoY.write(ServoY_defaultAngle);
+  webSocket.onEvent(webSocketEvent);
+  //
+  for (;;)
+  {
+    webSocket.loop();
+    vTaskDelay(1 / portTICK_PERIOD_MS); // cater other task pinned at core 0
   }
 }

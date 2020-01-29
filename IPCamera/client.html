@@ -1,6 +1,6 @@
 HTTP/1.1 200 OK
 Content-Type: text/html
-Content-Length: 4645
+Content-Length: 6850
 Connection: closed
 
 <html>
@@ -117,9 +117,12 @@ Connection: closed
 			.dropdown:hover .dropbtn {
 				background-color: #3e8e41;
 			}
+			#quality {
+				direction: rtl
+			}
 		</style>
 	</head>
-	<body style="background-color:#FFFFFF">
+	<body style="background-color:#FFFFFF" ondragstart="return false;" ondrop="return false;">
 		<img src="">
 		<div class="dropdown">
 			<button class="dropbtn">Settings</button>
@@ -130,19 +133,23 @@ Connection: closed
 					</div>
 					<div style="position:relative; float:left;">
 						<label class="switch">
-							<input type="checkbox" id="flashlight" onclick="setflashlight()">
+							<input type="checkbox" id="flashlight" onclick="ws.send('#'+(this.checked==true?1:0))">
 							<span class="slider round"></span>
 						</label>
 					</div><br>
 				</a>
 				<a href="#">
-					<button class="button flipcambutton" onclick="flipcamera()">Flip Camera</button>
+					<button class="button flipcambutton" onclick="ws.send('@')">Flip Camera</button>
 				</a>
 				<a href="#">
-					<button class="button restartbutton" onclick="restartcamera()">Restart Camera</button>
+					<button class="button restartbutton" onclick="ws.send('$')">Restart Camera</button>
 				</a>
 				<a href="#">
-					<select id="resolution" onchange="changeresolution()">
+					<b>Quality:</b>
+					<input type="range" id="quality" min="0" max="63" value="6" oninput="ws.send('%'+this.value)">
+				</a>
+				<a href="#">
+					<select id="resolution" onchange="ws.send('!'+this.value)">
 						<option value="10">UXGA(1600x1200)</option>
 						<option value="9">SXGA(1280x1024)</option>
 						<option value="8">XGA(1024x768)</option>
@@ -156,14 +163,28 @@ Connection: closed
 						<option value="0">QQVGA(160x120)</option>
 					</select>
 				</a>
+				<a href="#">
+					<b>Camera Movement:</b>
+					<table>
+						<tr>
+							<td><input type="range" id="servox" min="0" max="180" oninput="setservox()"></td>
+							<td><input type="range" id="servoy" min="0" max="180" oninput="setservoy()" orient="vertical" style="-webkit-appearance: slider-vertical;"/></td>
+						</tr>
+					</table>
+				</a>
 			</div>
 		</div>
 		<script>
+			const servocooldown=100;
+			let startcooldown=new Date();
+			let cooldownreducer=new Date();
+			let angleservox=document.getElementById("servox").value
+			let angleservoy=document.getElementById("servoy").value
 			const img = document.querySelector('img');
 			const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.hostname + '/ws';
 			const ws = new WebSocket(WS_URL);
 			ws.onerror = function() {
-			location.reload(true);
+				location.reload(true);
 			}
 			let urlObject;
 			ws.onmessage = message => {
@@ -176,19 +197,46 @@ Connection: closed
 				delete message;
 				img.src = urlObject;
 			}
+			setInterval(recorrectservo,250)
 			window.stop();
 			if ($.browser.msie) {document.execCommand("Stop");};
-			function setflashlight(){
-				ws.send("#"+(document.getElementById("flashlight").checked==true?1:0));
+			function recorrectservo() {
+				if (angleservox!=document.getElementById("servox").value) {
+					setservox()
+				}
+				if (angleservoy!=document.getElementById("servoy").value) {
+					setservoy()
+				}
 			}
-			function flipcamera(){
-				ws.send("@");
+			function setservox(){
+				destroyer=cooldownreducer;
+				cooldownreducer=new Date();
+				delete destroyer;
+				if (cooldownreducer-startcooldown>servocooldown) {
+					angleservox=document.getElementById("servox").value
+					ws.send("X"+angleservox);
+					destroyer=startcooldown;
+					startcooldown=new Date();
+					delete destroyer;
+					destroyer=cooldownreducer;
+					cooldownreducer=new Date();
+					delete destroyer;
+				}
 			}
-			function restartcamera(){
-				ws.send("$");
-			}
-			function changeresolution(){
-				ws.send("!"+document.getElementById("resolution").value);
+			function setservoy(){
+				destroyer=cooldownreducer;
+				cooldownreducer=new Date();
+				delete destroyer;
+				if (cooldownreducer-startcooldown>servocooldown) {
+					angleservoy=document.getElementById("servoy").value
+					ws.send("Y"+angleservoy);
+					destroyer=startcooldown;
+					startcooldown=new Date();
+					delete destroyer;
+					destroyer=cooldownreducer;
+					cooldownreducer=new Date();
+					delete destroyer;
+				}
 			}
 		</script>
 	</body>

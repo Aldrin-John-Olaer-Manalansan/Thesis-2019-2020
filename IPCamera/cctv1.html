@@ -1,0 +1,227 @@
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 9100
+Connection: closed
+
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <title></title>
+    <style media="screen">
+      *{ margin:0; padding:0; box-sizing:border-box; font-weight: 100; }
+      html{ overflow:hidden;}
+      body { font-family:helvetica; font-size:20px; line-height:34px; }
+      svg{ height:20px; width:20px; position:fixed; margin: 10px;}
+      #quality{  margin:3px auto; padding:3px; cursor:pointer; }
+      #quality:hover { background:#098ff8; color:white; }
+      #modal { height:100vh; width:100vw; background:rgba(0,0,0,0.3);
+        z-index:1000;position:fixed; top:0;
+        line-height:100vh; text-align:center;
+        display:none;
+        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+      }
+      article {
+        margin:10vh auto;
+        display:inline-block;
+        background: white;
+        width:400px;
+        max-width:90vw;
+        line-height: 35px;
+        color:#333;
+        cursor:pointer;
+        border: 1px solid #777;
+        padding:1px;
+      }
+      ul{
+        font-weight: 200;
+        list-style-type: none;
+         overflow-x:scroll;
+        max-height:75vh;
+        margin:0 auto;
+      }
+      li{
+        background:white;
+        border-bottom: 1px solid #ccc;
+      }
+      li:hover{
+        background:#098ff8; color:white;
+      }
+      #cancel { height: 35px; width:100%; position:relative; }
+      main { background:#333; width:100vw; height:75vw; }
+      #right { float:right; }
+      center { line-height:75vw; font-size:7vw !important; position:relative; height:75vw; }
+      img{ width:100%; height:auto; }
+      #offline { width:100vw; height:75vw; z-index:999; background:#333; position:fixed; top:0;}
+      section { margin:auto; padding:1vh; width:100vw; height:100vh; overflow:scroll; top:0;  }
+      input[type='range']  { -webkit-appearance: none;  appearance: none; background: rgba(30,30,30,1); opacity: 0.3; -webkit-transition: .2s;  transition: opacity .2s; position:absolute; }
+      input[type='range']:hover { opacity:1;}
+      input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 4vw; height: 4vw; background: #098ff8; cursor: pointer; }
+      input[type='range']::-moz-range-thumb { width: 4vw; height: 4vw; background: #ffffff; cursor: pointer; }
+      #x{ bottom:0; left:0;  height:4vw; width:95vw;}
+      #y{ top:32vw; right:-33vw; width:70vw; height:4vw !important; -webkit-transform:rotate(90deg); }
+      @media (orientation: landscape) {
+        main { height: 90vh;  width:100vw;}
+        img { height: 90vh; width:auto;  margin:auto;}
+        #offline { width:120vh; height:90vh; }
+        section { margin:auto; width:120vh; font-size:3vh ;}
+        center { line-height:90vh; margin:auto; height:90vh; width:120vh; }
+        input[type='range']::-webkit-slider-thumb { width: 3vh; height: 3vh; }
+        input[type='range']::-moz-range-thumb { width: 3vh; height: 3vh;}
+        #x{ height:3vh; width:117vh; }
+        #y{ top:42vh; right:-41.5vh; width:86vh; height:3vh !important; }
+      }
+      .switch {
+				position: relative;
+				display: inline-block;
+				width: 60px;
+				height: 34px;
+			}
+			.switch input {
+				opacity: 0;
+				width: 0;
+				height: 0;
+			}
+			.slider {
+				position: absolute;
+				cursor: pointer;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background-color: #ccc;
+				-webkit-transition: .4s;
+				transition: .4s;
+			}
+			.slider:before {
+				position: absolute;
+				content: "";
+				height: 26px;
+				width: 26px;
+				left: 4px;
+				bottom: 4px;
+				background-color: white;
+				-webkit-transition: .4s;
+				transition: .4s;
+			}
+			input:checked + .slider {
+				background-color: #2196F3;
+			}
+			input:focus + .slider {
+				box-shadow: 0 0 1px #2196F3;
+			}
+			input:checked + .slider:before {
+				-webkit-transform: translateX(26px);
+				-ms-transform: translateX(26px);
+				transform: translateX(26px);
+			}
+			.slider.round {
+				border-radius: 34px;
+			}
+			.slider.round:before {
+				border-radius: 50%;
+			}
+			.button {
+				background-color: #4CAF50;
+				border: none;
+				color: white;
+				padding: 5px;
+				text-align: center;
+				text-decoration: none;
+				display: inline-block;
+				font-size: 16px;
+				cursor: pointer;
+			}
+    </style>
+    <script type="text/javascript">
+      function startTime() { var today = new Date(); var h = today.getHours(); var m = today.getMinutes(); var s = today.getSeconds(); m = checkTime(m); s = checkTime(s); document.getElementById('time').innerHTML = h + ":" + m + ":" + s; var t = setTimeout(startTime, 500); }
+      function checkTime(i) { if (i < 10) {i = "0" + i}; return i;}
+      const Display=(element ,state)=>{ var x = document.getElementById(element).style.display = state;
+    }
+	let startcooldown=new Date();
+	let cooldownreducer=new Date();
+    var ws;
+      function connect() {
+        const img = document.querySelector('#feed');
+        var url = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.hostname + '/ws';
+        ws = new WebSocket(url);
+        ws.onopen = function() { Display('offline','none'); console.log('Connected');}
+        ws.onmessage = function(e) {
+          const arrayBuffer = e.data;
+  				urlObject = URL.createObjectURL(new Blob([arrayBuffer]));
+  				img.src = urlObject;
+        };
+        window.stop();
+        ws.onclose = function(e) {
+          console.log('Socket is closed. Reconnect will be attempted in 1 second.', e.reason);
+          setTimeout(function() {
+            connect();
+          }, 1000);
+        };
+        ws.onerror = function(err) {
+          console.error('Socket encountered error: ', err.message, 'Closing socket');
+          ws.close();
+        };
+}
+    var cdrequest=(code)=>{
+	  destroyer=cooldownreducer;
+	  cooldownreducer = new Date();
+	  delete destroyer;
+	  if (cooldownreducer-startcooldown>100) {
+		try {
+			ws.send(code);
+			console.log('code sent: '+ code);
+			Display('modal','none');
+		} catch (e) {
+			console.log('failed to send code: '+ code);
+		}
+		destroyer=startcooldown;
+		startcooldown = new Date();
+		delete destroyer;
+	  }
+    }
+    var request=(code)=>{
+		try {
+			ws.send(code);
+			console.log('code sent: '+ code);
+			Display('modal','none');
+		} catch (e) {
+			console.log('failed to send code: '+ code);
+		}
+    }
+    </script>
+  </head>
+  <body onload="connect()">
+    <main>
+      <center id="live">
+        <span icon onclick="Display('modal','block')">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="400" viewBox="0, 0, 400,400"><g id="svgg"><path id="path0" d="M224.047 19.373 C 206.547 47.813,184.411 48.667,167.287 21.562 C 161.158 11.860,154.760 3.922,153.071 3.922 C 149.998 3.922,89.415 30.885,86.906 33.369 C 86.174 34.093,87.765 44.469,90.441 56.426 C 97.627 88.534,82.136 105.087,51.126 98.437 C 40.049 96.061,30.345 94.118,29.562 94.118 C 27.490 94.118,3.922 156.681,3.922 162.182 C 3.922 164.739,11.863 171.169,21.569 176.471 C 35.719 184.200,39.216 188.200,39.216 196.656 C 39.216 202.456,40.258 209.917,41.531 213.236 C 43.109 217.348,38.112 223.311,25.845 231.958 C 4.288 247.153,4.247 247.632,21.313 284.571 C 35.909 316.162,35.331 315.804,61.257 309.276 C 87.769 302.600,106.763 320.826,101.077 347.485 C 95.895 371.781,97.395 373.757,130.015 385.630 C 167.045 399.109,166.471 399.194,178.639 378.431 C 194.137 351.985,219.924 351.988,236.635 378.438 C 242.764 388.140,248.324 396.078,248.989 396.078 C 251.429 396.078,317.646 365.028,317.601 363.905 C 317.575 363.267,315.174 353.808,312.265 342.885 C 304.156 312.433,319.115 296.485,352.272 300.236 L 374.916 302.798 387.458 270.756 C 403.076 230.854,403.617 234.588,380.392 221.947 C 352.043 206.518,351.223 183.231,378.424 166.046 C 399.411 152.787,399.339 153.410,383.893 119.170 C 366.754 81.177,367.684 81.891,344.366 88.816 L 324.515 94.711 311.186 81.793 C 303.856 74.687,298.639 66.838,299.594 64.350 C 300.549 61.862,302.454 52.101,303.827 42.658 L 306.324 25.490 275.711 14.159 C 258.874 7.926,243.109 2.085,240.677 1.179 C 238.245 0.272,230.762 8.459,224.047 19.373 M221.569 114.072 C 286.196 131.478,310.164 205.313,267.402 255.270 C 217.784 313.238,121.905 283.742,114.654 208.279 C 108.857 147.956,164.695 98.755,221.569 114.072 " stroke="none" fill="currentColor" fill-rule="evenodd"></path></g></svg>
+        </span>
+        <input type="range" id="x" min="0" max="180" onmouseup="request(`X${Number(this.value)}`)" oninput="cdrequest(`X${Number(this.value)}`)">
+        <input type="range" id="y" min="0" max="180" onmouseup="request(`Y${Number(this.value)}`)" oninput="cdrequest(`Y${Number(this.value)}`)">
+      <img id="feed" src="" alt="live" onerror="Display('offline','block')">
+      <div id="offline">Offline</div>
+      </center>
+    </main>
+    <section>
+      <div id="right">
+        Lights
+        <label class="switch">
+          <input type="checkbox" id="flashlight" onchange="request(`#${Number(this.checked)}`)">
+          <span class="slider round"></span>
+        </label>
+      </div>
+        <h1 id="time"></h1>
+    </section>
+    <div id="modal">
+    <article>
+      <ul>
+        <li onclick="request(this.getAttribute('code'))" code="!10" details="UXGA(1600x1200)">Full High Definition (Full-HD)</li>
+        <li onclick="request(this.getAttribute('code'))" code="!8" details="XGA(1024x768)">High Definition (HD)</li>
+        <li onclick="request(this.getAttribute('code'))" code="!6" details="VGA(640x480)">Standard Definition (SD)</li>
+      </ul>
+      <div id="cancel" onclick="Display('modal','none')">cancel</div>
+    </article>
+    </div>
+  </body>
+</html>
